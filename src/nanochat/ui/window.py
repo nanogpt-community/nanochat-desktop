@@ -353,6 +353,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 NanoChatClient,
                 StreamEvent,
                 ContentEvent,
+                ConversationCreatedEvent,
                 StreamCompleteEvent,
                 StreamErrorEvent,
                 GenerateMessageRequest,
@@ -376,8 +377,11 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                     async for event in client.stream_message(request):
                         if isinstance(event, ContentEvent):
                             update_ui(assistant_content[0] + event.content)
+                        elif isinstance(event, ConversationCreatedEvent):
+                            # Update current conversation ID when new one is created
+                            GLib.idle_add(self._set_conversation_id, event.conversation_id)
                         elif isinstance(event, StreamCompleteEvent):
-                            # Reload conversations to get the new/updated one
+                            # Reload conversations to show updated list
                             GLib.idle_add(self._load_conversations)
                             break
                         elif isinstance(event, StreamErrorEvent):
@@ -425,6 +429,10 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
     def _show_error(self, error: str) -> None:
         """Show error message."""
         print(f"Error: {error}")
+
+    def _set_conversation_id(self, conversation_id: str) -> None:
+        """Set the current conversation ID."""
+        self._current_conversation_id = conversation_id
 
     def new_conversation(self) -> None:
         """Start a new conversation."""
