@@ -73,7 +73,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self.conversation_list = Gtk.ListBox()
         self.conversation_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self.conversation_list.add_css_class("navigation-sidebar")
-        self.conversation_list.connect("row-activated", self._on_conversation_selected)
+        self.conversation_list.connect("selected-rows-changed", self._on_conversation_selected)
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_child(self.conversation_list)
@@ -253,8 +253,8 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             for conv in conversations:
                 row = Adw.ActionRow()
                 row.set_title(conv.title)  # type: ignore[attr-defined]
-                # Don't show message count since API returns 0
-                row.conv_id = conv.id  # type: ignore[attr-defined]
+                # Store conversation ID in row name for retrieval
+                row.set_name(conv.id)  # type: ignore[attr-defined]
                 self.conversation_list.append(row)
 
         def thread_func() -> None:
@@ -264,10 +264,12 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         thread = threading.Thread(target=thread_func, daemon=True)
         thread.start()
 
-    def _on_conversation_selected(self, list_box: Gtk.ListBox, row: Adw.ActionRow) -> None:
+    def _on_conversation_selected(self, list_box: Gtk.ListBox) -> None:
         """Handle conversation selection."""
-        conv_id = row.conv_id  # type: ignore[attr-defined]
-        self._load_messages(conv_id)
+        selected_row = list_box.get_selected_row()
+        if selected_row:
+            conv_id = selected_row.get_name()  # type: ignore[attr-defined]
+            self._load_messages(conv_id)
 
     def _load_messages(self, conversation_id: str) -> None:
         """Load messages for a conversation."""
