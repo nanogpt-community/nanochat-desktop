@@ -1,21 +1,21 @@
 """Main application window."""
 
 import asyncio
-import threading
 import logging
+import threading
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Gtk, Adw, GLib
+from gi.repository import Adw, GLib, Gtk
 
-from nanochat.ui.message_widget import MessageWidget
-from nanochat.data.database import Database
-from nanochat.data.settings import SettingsManager
-from nanochat.data.secrets import SecretsManager
 from nanochat.api.models import Conversation, Message
+from nanochat.data.database import Database
+from nanochat.data.secrets import SecretsManager
+from nanochat.data.settings import SettingsManager
+from nanochat.ui.message_widget import MessageWidget
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         settings_manager: SettingsManager,
         secrets_manager: SecretsManager,
         database: Database,
-        **kwargs: object
+        **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)
 
@@ -62,7 +62,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         """Build the UI."""
         # Main layout with navigation split view
         self.split_view = Adw.NavigationSplitView()
-        
+
         # Wrap split view in toast overlay for notifications
         self.toast_overlay = Adw.ToastOverlay()
         self.toast_overlay.set_child(self.split_view)
@@ -134,7 +134,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         # Model selector dropdown
         self.model_selector = Gtk.DropDown()
         self.model_selector.set_tooltip_text("Select Model")
-        self._model_change_handler = self.model_selector.connect("notify::selected", self._on_model_changed)
+        self._model_change_handler = self.model_selector.connect(
+            "notify::selected", self._on_model_changed
+        )
         header.set_title_widget(self.model_selector)
 
         # Settings button
@@ -249,14 +251,14 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
             # Block signal to prevent overwriting saved setting during setup
             self.model_selector.handler_block(self._model_change_handler)
-            
+
             self.model_selector.set_model(model_names)
 
             default = self.settings_manager.settings.chat.default_model
             if default in self._model_ids:
                 idx = self._model_ids.index(default)
                 self.model_selector.set_selected(idx)
-            
+
             self.model_selector.handler_unblock(self._model_change_handler)
 
         def thread_func() -> None:
@@ -332,7 +334,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
             # Show success toast if this was a manual refresh
             if force_refresh:
-                self.toast_overlay.add_toast(Adw.Toast(title=f"Refreshed {len(conversations)} conversations"))
+                self.toast_overlay.add_toast(
+                    Adw.Toast(title=f"Refreshed {len(conversations)} conversations")
+                )
 
         def thread_func() -> None:
             result = fetch()
@@ -362,6 +366,10 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 # Restore selection if this is the current conversation
                 if self._current_conversation_id and conv.id == self._current_conversation_id:
                     self.conversation_list.select_row(row)
+
+            # If no conversation is active (e.g. startup), ensure no row is selected
+            if self._current_conversation_id is None:
+                self.conversation_list.unselect_all()
         finally:
             self._updating_conversation_list = False
 
@@ -386,11 +394,11 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         # Hover controller
         controller = Gtk.EventControllerMotion()
-        
+
         def on_enter(ctrl: Gtk.EventControllerMotion, x: float, y: float) -> None:
             delete_btn.set_opacity(1)
             delete_btn.set_sensitive(True)
-        
+
         def on_leave(ctrl: Gtk.EventControllerMotion) -> None:
             delete_btn.set_opacity(0)
             delete_btn.set_sensitive(False)
@@ -415,17 +423,17 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             heading="Delete Conversation?",
             body=f"Are you sure you want to delete {title}? This cannot be undone.",
         )
-        
+
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("delete", "Delete")
         dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
-        
+
         def on_response(dialog: Adw.MessageDialog, response: str) -> None:
             if response == "delete":
                 self._delete_conversation(conversation_id)
-        
+
         dialog.connect("response", on_response)
         dialog.present()
 
@@ -433,7 +441,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         """Delete conversation from API and DB."""
         # Optimistically remove from UI
         self._remove_conversation_from_ui(conversation_id)
-        
+
         # If deleted current conversation, clear view
         if self._current_conversation_id == conversation_id:
             self.new_conversation()
@@ -453,13 +461,14 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
             # Delete from API
             try:
-                from nanochat.api.client import NanoChatClient
                 import asyncio
-                
+
+                from nanochat.api.client import NanoChatClient
+
                 async def do_delete() -> None:
                     async with NanoChatClient(url, key) as client:
                         await client.delete_conversation(conversation_id)
-                
+
                 loop = asyncio.new_event_loop()
                 loop.run_until_complete(do_delete())
                 loop.close()
@@ -481,11 +490,19 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
     def _on_conversation_selected(self, list_box: Gtk.ListBox) -> None:
         """Handle conversation selection."""
+        selected_row = list_box.get_selected_row()
+        
         # Skip if we're updating the conversation list programmatically
         if self._updating_conversation_list:
             return
 
-        selected_row = list_box.get_selected_row()
+        # Prevent auto-selection when no conversation should be active
+        # This handles GTK's default behavior of auto-selecting the first item
+        if self._current_conversation_id is None and selected_row is not None:
+            # We're in "new chat" mode - ignore this auto-selection
+            list_box.unselect_all()
+            return
+
         if selected_row:
             conv_id = selected_row.get_name()  # type: ignore[attr-defined]
             self._load_messages(conv_id)
@@ -510,7 +527,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         local_messages = []
         try:
             local_messages = self.database.get_messages(conversation_id)
-            logger.debug(f"Loaded {len(local_messages)} messages from cache for {conversation_id[:8]}...")
+            logger.debug(
+                f"Loaded {len(local_messages)} messages from cache for {conversation_id[:8]}..."
+            )
         except Exception as e:
             logger.error(f"Error loading local messages: {e}")
 
@@ -541,7 +560,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         # Skip if already syncing this conversation
         if conversation_id in self._syncing_conversations:
-            logger.debug(f"Skipping duplicate sync for {conversation_id[:8]}... (already in progress)")
+            logger.debug(
+                f"Skipping duplicate sync for {conversation_id[:8]}... (already in progress)"
+            )
             return
 
         self._syncing_conversations.add(conversation_id)
@@ -611,7 +632,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         # Use the model selector to show loading state
         if self.model_selector:
             # Store original title
-            if not hasattr(self, '_original_model_title'):
+            if not hasattr(self, "_original_model_title"):
                 self._original_model_title = ""
             # We can't easily change the model selector, so we'll use a toast
             self.toast_overlay.add_toast(Adw.Toast(title=message, timeout=2))
@@ -712,7 +733,11 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 try:
                     # Send the message (returns immediately with conversation_id)
                     async with NanoChatClient(url, key) as client:
-                        response = await client._request("POST", "/api/generate-message", json=request.model_dump(exclude_none=True, by_alias=True))
+                        response = await client._request(
+                            "POST",
+                            "/api/generate-message",
+                            json=request.model_dump(exclude_none=True, by_alias=True),
+                        )
 
                         if "conversation_id" in response:
                             new_conv_id = response["conversation_id"]
@@ -746,7 +771,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                                             # Only update if content has changed
                                             if msg.content != last_assistant_content:
                                                 last_assistant_content = msg.content
-                                                GLib.idle_add(self._update_assistant_message, msg.content)
+                                                GLib.idle_add(
+                                                    self._update_assistant_message, msg.content
+                                                )
 
                                     # Check if generation is complete
                                     # - conversation.generating is False, OR
@@ -758,13 +785,22 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                                             generation_complete = True
                                     else:
                                         # Fallback: check if last message is a complete assistant response
-                                        if len(messages) >= 2 and messages[-1].role == "assistant" and messages[-1].content:
+                                        if (
+                                            len(messages) >= 2
+                                            and messages[-1].role == "assistant"
+                                            and messages[-1].content
+                                        ):
                                             generation_complete = True
 
                                     if generation_complete:
                                         # Final update to ensure we have the latest content
-                                        if messages[-1].role == "assistant" and messages[-1].content:
-                                            GLib.idle_add(self._update_assistant_message, messages[-1].content)
+                                        if (
+                                            messages[-1].role == "assistant"
+                                            and messages[-1].content
+                                        ):
+                                            GLib.idle_add(
+                                                self._update_assistant_message, messages[-1].content
+                                            )
                                         GLib.idle_add(self._load_conversations)
                                         break
 
@@ -774,6 +810,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
                 except Exception as e:
                     import traceback
+
                     traceback.print_exc()
                     GLib.idle_add(self._show_error, str(e))
                 finally:
@@ -823,7 +860,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
     def _show_error(self, error: str) -> None:
         """Show error message to user and log it."""
         logger.error(f"Error: {error}")
-        
+
         toast = Adw.Toast.new(f"Error: {error}")
         toast.set_timeout(5)  # 5 seconds
         self.toast_overlay.add_toast(toast)
