@@ -12,6 +12,8 @@ from gi.repository import Gtk, Adw, GLib
 
 from nanochat.ui.message_widget import MessageWidget
 from nanochat.data.database import Database
+from nanochat.data.settings import SettingsManager
+from nanochat.data.secrets import SecretsManager
 from nanochat.api.models import Conversation, Message
 
 
@@ -20,8 +22,8 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
     def __init__(
         self,
-        settings_manager: object,
-        secrets_manager: object,
+        settings_manager: SettingsManager,
+        secrets_manager: SecretsManager,
         database: Database,
         **kwargs: object
     ) -> None:
@@ -111,7 +113,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         # Model selector dropdown
         self.model_selector = Gtk.DropDown()
         self.model_selector.set_tooltip_text("Select Model")
-        self.model_selector.connect("notify::selected", self._on_model_changed)
+        self._model_change_handler = self.model_selector.connect("notify::selected", self._on_model_changed)
         header.set_title_widget(self.model_selector)
 
         # Settings button
@@ -222,12 +224,17 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 model_names.append(model.name)  # type: ignore[attr-defined]
                 self._model_ids.append(model.id)  # type: ignore[attr-defined]
 
+            # Block signal to prevent overwriting saved setting during setup
+            self.model_selector.handler_block(self._model_change_handler)
+            
             self.model_selector.set_model(model_names)
 
             default = self.settings_manager.settings.chat.default_model
             if default in self._model_ids:
                 idx = self._model_ids.index(default)
                 self.model_selector.set_selected(idx)
+            
+            self.model_selector.handler_unblock(self._model_change_handler)
 
         def thread_func() -> None:
             result = fetch()

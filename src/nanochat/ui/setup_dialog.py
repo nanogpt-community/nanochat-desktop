@@ -8,7 +8,11 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
+from typing import Callable, Optional
 from gi.repository import Gtk, Adw, GLib
+
+from nanochat.data.settings import SettingsManager
+from nanochat.data.secrets import SecretsManager
 
 
 class SetupDialog(Adw.PreferencesWindow):  # type: ignore[misc]
@@ -16,14 +20,14 @@ class SetupDialog(Adw.PreferencesWindow):  # type: ignore[misc]
 
     def __init__(
         self,
-        parent: object,
-        settings_manager: object,
-        secrets_manager: object,
-        on_saved: object | None = None,
+        parent: Gtk.Window,
+        settings_manager: SettingsManager,
+        secrets_manager: SecretsManager,
+        on_saved: Optional[Callable[[], None]] = None,
     ) -> None:
         super().__init__()
 
-        self.set_transient_for(parent)  # type: ignore[arg-type]
+        self.set_transient_for(parent)
         self.set_modal(True)
         self.set_title("NanoChat Setup")
         self.set_default_size(500, 400)
