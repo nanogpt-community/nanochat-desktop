@@ -47,7 +47,11 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         """Build the UI."""
         # Main layout with navigation split view
         self.split_view = Adw.NavigationSplitView()
-        self.set_content(self.split_view)
+        
+        # Wrap split view in toast overlay for notifications
+        self.toast_overlay = Adw.ToastOverlay()
+        self.toast_overlay.set_child(self.split_view)
+        self.set_content(self.toast_overlay)
 
         # Sidebar
         sidebar = self._create_sidebar()
@@ -516,8 +520,12 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             self.messages_list.append(widget)
 
     def _show_error(self, error: str) -> None:
-        """Show error message."""
+        """Show error message to user and log it."""
         print(f"Error: {error}")
+        
+        toast = Adw.Toast.new(f"Error: {error}")
+        toast.set_timeout(5)  # 5 seconds
+        self.toast_overlay.add_toast(toast)
 
     def _set_conversation_id(self, conversation_id: str) -> None:
         """Set the current conversation ID."""
