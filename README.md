@@ -57,6 +57,27 @@ sudo apt install python3-dev libgtk-4-dev libadwaita-1-dev libsecret-1-dev
     python -m nanochat
     ```
 
+## Roadmap
+
+See the [`plans/`](plans/) folder for detailed development plans and upcoming features:
+
+**Phase 3 - Assistants and Projects:**
+- Custom AI assistants with system prompts
+- Project folders for organizing conversations
+- Enhanced conversation management
+
+**Phase 4 - Advanced Features:**
+- Web search integration
+- File attachments
+- Usage analytics
+
+**Phase 5 - Polish:**
+- Additional themes and customization
+- Accessibility improvements
+- Store submission preparation
+
+---
+
 ## Packaging
 
 ### Flatpak
