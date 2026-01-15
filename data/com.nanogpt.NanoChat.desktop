@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=NanoChat
+Comment=Desktop client for NanoChat API
+Exec=nanochat
+Icon=com.nanogpt.NanoChat
+Type=Application
+Terminal=false
+Categories=Utility;Network;Chat;
+StartupNotify=true

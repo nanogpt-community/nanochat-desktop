@@ -1,0 +1,35 @@
+app-id: com.nanogpt.NanoChat
+runtime: org.gnome.Platform
+runtime-version: '45'
+sdk: org.gnome.Sdk
+command: nanochat
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --talk-name=org.freedesktop.secrets
+  - --filesystem=xdg-run/keyring
+
+modules:
+  - name: python3-dependencies
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=/app --no-deps .
+    sources:
+      # In a real setup, generate this section with flatpak-pip-generator
+      # python3 -m flatpak_pip_generator requirements.txt
+      - type: file
+        path: ../pyproject.toml
+        dest-filename: pyproject.toml
+
+  - name: nanochat
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=/app --no-deps .
+      - install -D data/com.nanogpt.NanoChat.desktop /app/share/applications/com.nanogpt.NanoChat.desktop
+      - install -D data/icons/com.nanogpt.NanoChat.svg /app/share/icons/hicolor/scalable/apps/com.nanogpt.NanoChat.svg
+    sources:
+      - type: dir
+        path: ..
