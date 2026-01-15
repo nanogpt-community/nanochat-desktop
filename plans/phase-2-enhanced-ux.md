@@ -666,3 +666,72 @@ When implementing Phase 2:
 3. **Keyboard shortcuts** must not conflict with system shortcuts
 4. **Toast messages** should be brief and informative
 5. **Always test** with both cached and fresh data
+
+### GTK Signal Handling Lessons Learned
+
+**Gtk.ListBox Signal Selection Issues:**
+- `selected-rows-changed` only fires when selection **changes**, not on every click
+- Clicking an already-selected row won't trigger the handler
+- Solution: Use `Gtk.GestureClick` on each row instead of list-level signals
+
+**Gtk.ListBox Auto-Selection Behavior:**
+- Gtk.ListBox automatically selects the first row when rows are added
+- `unselect_all()` must be called AFTER GTK processes all events
+- Solution: Use `GLib.idle_add()` to defer selection state management
+
+**Pattern for Row Click Handling:**
+```python
+# Add click gesture to each row
+click = Gtk.GestureClick()
+click.connect("pressed", self._on_row_clicked, conv.id)
+row.add_controller(click)
+
+# Handler checks for programmatic updates
+def _on_row_clicked(self, gesture, n_press, x, y, conv_id):
+    if self._updating_conversation_list:
+        return
+    self._load_messages(conv_id)
+```
+
+**Pattern for Preventing Auto-Selection:**
+```python
+def _update_conversation_list(self, conversations):
+    self._updating_conversation_list = True
+    try:
+        # Clear and rebuild list
+        ...
+    finally:
+        self._updating_conversation_list = False
+
+    # Defer selection state to after GTK processing
+    def set_selection_state():
+        if self._current_conversation_id is None:
+            self.conversation_list.unselect_all()
+        return False
+    GLib.idle_add(set_selection_state)
+```
+
+### Flatpak Build Notes
+
+**Network Access in Flatpak:**
+- Flatpak builds run in a sandboxed environment with no network by default
+- To install Python packages during build, add network access to the module:
+```yaml
+- name: python3-modules
+  build-options:
+    build-args:
+      - --share=network
+  build-commands:
+    - pip3 install --prefix=/app httpx pydantic ...
+```
+
+**PyGObject in Flatpak:**
+- Don't try to rebuild PyGObject in Flatpak - it's already in the GNOME Platform runtime
+- Only install pure Python packages (httpx, pydantic, keyring, etc.) via pip
+
+**Building Flatpak Bundle:**
+```bash
+flatpak-builder --user --force-clean build flatpak/com.nanogpt.NanoChat.yml
+flatpak build-export export build
+flatpak build-bundle export com.nanogpt.NanoChat-0.2.0.flatpak com.nanogpt.NanoChat
+```
