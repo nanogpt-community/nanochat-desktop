@@ -484,24 +484,31 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         self._current_conversation_id = conversation_id
 
+        # Check cache freshness BEFORE loading (to know if we should sync)
+        current_time = time.time()
+        last_fetch = self._conversation_fetch_time.get(conversation_id, 0)
+        cache_is_stale = (current_time - last_fetch) > self._cache_stale_seconds
+        needs_sync = cache_is_stale or conversation_id not in self._conversation_fetch_time
+
         # 1. Load from DB first (should be instant)
+        local_messages = []
         try:
             local_messages = self.database.get_messages(conversation_id)
             logger.info(f"Loaded {len(local_messages)} messages from cache for conversation {conversation_id[:8]}...")
             if local_messages:
                 self._update_messages_list(local_messages, from_cache=True)
+                # Force a UI update immediately
+                GLib.idle_add(lambda: None)
         except Exception as e:
             logger.error(f"Error loading local messages: {e}")
 
-        # 2. Check if we need to sync with API
-        # Only sync if: no cache OR cache is stale (older than 5 minutes)
-        current_time = time.time()
-        last_fetch = self._conversation_fetch_time.get(conversation_id, 0)
-        cache_is_stale = (current_time - last_fetch) > self._cache_stale_seconds
-        has_no_cache = len(self._current_messages) == 0
-
-        if not has_no_cache and not cache_is_stale:
+        # 2. Skip API sync if cache is fresh (has data and not stale)
+        has_messages = len(local_messages) > 0
+        if has_messages and not cache_is_stale:
             logger.debug(f"Cache is fresh for {conversation_id[:8]}..., skipping API sync")
+            # Update fetch time so we know we've seen this conversation
+            if conversation_id not in self._conversation_fetch_time:
+                self._conversation_fetch_time[conversation_id] = current_time
             return
 
         logger.info(f"Syncing {conversation_id[:8]}... with API (cache {'stale' if cache_is_stale else 'empty'})")
