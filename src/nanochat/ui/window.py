@@ -45,6 +45,10 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self._cache_stale_seconds: int = 300  # 5 minutes
         # Track loading state for UI feedback
         self._is_loading_conversations: bool = False
+        # Track in-progress API syncs to prevent duplicate requests
+        self._syncing_conversations: set[str] = set()
+        # Flag to prevent message reload during conversation list updates
+        self._updating_conversation_list: bool = False
 
         self.set_default_size(1200, 800)
         self.set_title("NanoChat")
@@ -340,22 +344,26 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
     def _update_conversation_list(self, conversations: list[Conversation]) -> None:
         """Update the conversation list UI."""
         self._conversations = conversations
+        self._updating_conversation_list = True
 
-        # Clear list
-        child = self.conversation_list.get_first_child()
-        while child is not None:
-            next_child = child.get_next_sibling()
-            self.conversation_list.remove(child)
-            child = next_child
+        try:
+            # Clear list
+            child = self.conversation_list.get_first_child()
+            while child is not None:
+                next_child = child.get_next_sibling()
+                self.conversation_list.remove(child)
+                child = next_child
 
-        # Add conversations
-        for conv in conversations:
-            row = self._create_conversation_row(conv)
-            self.conversation_list.append(row)
+            # Add conversations
+            for conv in conversations:
+                row = self._create_conversation_row(conv)
+                self.conversation_list.append(row)
 
-            # Restore selection if this is the current conversation
-            if self._current_conversation_id and conv.id == self._current_conversation_id:
-                self.conversation_list.select_row(row)
+                # Restore selection if this is the current conversation
+                if self._current_conversation_id and conv.id == self._current_conversation_id:
+                    self.conversation_list.select_row(row)
+        finally:
+            self._updating_conversation_list = False
 
     def _create_conversation_row(self, conv: Conversation) -> Adw.ActionRow:
         """Create a row for the conversation list with delete button."""
@@ -473,6 +481,10 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
     def _on_conversation_selected(self, list_box: Gtk.ListBox) -> None:
         """Handle conversation selection."""
+        # Skip if we're updating the conversation list programmatically
+        if self._updating_conversation_list:
+            return
+
         selected_row = list_box.get_selected_row()
         if selected_row:
             conv_id = selected_row.get_name()  # type: ignore[attr-defined]
@@ -484,26 +496,30 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         self._current_conversation_id = conversation_id
 
+        # If an API sync is already in progress for this conversation, just wait for it
+        if conversation_id in self._syncing_conversations:
+            logger.debug(f"API sync already in progress for {conversation_id[:8]}...")
+            return
+
         # Check cache freshness BEFORE loading (to know if we should sync)
         current_time = time.time()
         last_fetch = self._conversation_fetch_time.get(conversation_id, 0)
         cache_is_stale = (current_time - last_fetch) > self._cache_stale_seconds
-        needs_sync = cache_is_stale or conversation_id not in self._conversation_fetch_time
 
         # 1. Load from DB first (should be instant)
         local_messages = []
         try:
             local_messages = self.database.get_messages(conversation_id)
-            logger.info(f"Loaded {len(local_messages)} messages from cache for conversation {conversation_id[:8]}...")
-            if local_messages:
-                self._update_messages_list(local_messages, from_cache=True)
-                # Force a UI update immediately
-                GLib.idle_add(lambda: None)
+            logger.debug(f"Loaded {len(local_messages)} messages from cache for {conversation_id[:8]}...")
         except Exception as e:
             logger.error(f"Error loading local messages: {e}")
 
-        # 2. Skip API sync if cache is fresh (has data and not stale)
+        # 2. Update UI with cached messages (if any) - defer API sync to allow UI to render
         has_messages = len(local_messages) > 0
+        if has_messages:
+            self._update_messages_list(local_messages, from_cache=True)
+
+        # 3. Skip API sync if cache is fresh (has data and not stale)
         if has_messages and not cache_is_stale:
             logger.debug(f"Cache is fresh for {conversation_id[:8]}..., skipping API sync")
             # Update fetch time so we know we've seen this conversation
@@ -511,18 +527,37 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 self._conversation_fetch_time[conversation_id] = current_time
             return
 
-        logger.info(f"Syncing {conversation_id[:8]}... with API (cache {'stale' if cache_is_stale else 'empty'})")
+        # 4. Defer the API sync to run after the UI has rendered
+        # This ensures the cached messages display immediately
+        def start_api_sync() -> bool:
+            self._sync_messages_from_api(conversation_id, cache_is_stale)
+            return False  # Don't repeat
 
-        # Show loading indicator in header
+        GLib.idle_add(start_api_sync)
+
+    def _sync_messages_from_api(self, conversation_id: str, cache_is_stale: bool) -> None:
+        """Sync messages from API in background thread."""
+        import time
+
+        # Skip if already syncing this conversation
+        if conversation_id in self._syncing_conversations:
+            logger.debug(f"Skipping duplicate sync for {conversation_id[:8]}... (already in progress)")
+            return
+
+        self._syncing_conversations.add(conversation_id)
+        logger.debug(f"Syncing {conversation_id[:8]}... with API")
+
+        # Show loading indicator
         self._show_loading_indicator("Retrieving messages...")
 
-        # 3. Sync with API (in background)
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
 
         if not url or not key:
             self._hide_loading_indicator()
             return
+
+        current_time = time.time()
 
         def fetch() -> list[Message] | Exception:
             from nanochat.api.client import NanoChatClient
@@ -541,21 +576,22 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         def on_complete(messages: list[Message] | Exception) -> None:
             self._hide_loading_indicator()
+            # Remove from in-progress set
+            self._syncing_conversations.discard(conversation_id)
 
             if isinstance(messages, Exception):
                 logger.error(f"Failed to load messages from API: {messages}")
                 self.toast_overlay.add_toast(Adw.Toast(title="Failed to load messages"))
                 return
 
-            # Update fetch time
+            # Update fetch time FIRST before any UI updates
             self._conversation_fetch_time[conversation_id] = time.time()
 
-            logger.info(f"Loaded {len(messages)} messages from API for conversation {conversation_id[:8]}...")
+            logger.debug(f"Loaded {len(messages)} messages from API for {conversation_id[:8]}...")
 
             # Save to DB
             try:
                 self.database.save_messages(messages)
-                logger.debug(f"Saved {len(messages)} messages to cache")
             except Exception as e:
                 logger.error(f"Error saving messages to DB: {e}")
 
