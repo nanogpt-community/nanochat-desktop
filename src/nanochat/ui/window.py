@@ -38,6 +38,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self._model_ids: list[str] = []
         self._conversations: list[Conversation] = []
         self._current_conversation_id: str | None = None
+        self._current_messages: list[Message] = []
         self._is_sending: bool = False
 
         self.set_default_size(1200, 800)
@@ -252,14 +253,16 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
     def _load_conversations(self) -> None:
         """Load conversations from DB and then sync with API."""
-        # 1. Load from local DB first
+        # 1. Load from local DB first (should be instant)
         try:
             local_conversations = self.database.get_conversations()
-            self._update_conversation_list(local_conversations)
+            logger.info(f"Loaded {len(local_conversations)} conversations from cache")
+            if local_conversations:
+                self._update_conversation_list(local_conversations)
         except Exception as e:
             logger.error(f"Error loading local conversations: {e}")
 
-        # 2. Sync with API
+        # 2. Sync with API (in background)
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
 
@@ -283,12 +286,15 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         def on_complete(conversations: list[Conversation] | Exception) -> None:
             if isinstance(conversations, Exception):
-                logger.error(f"Failed to load conversations: {conversations}")
+                logger.error(f"Failed to load conversations from API: {conversations}")
                 return
+
+            logger.info(f"Loaded {len(conversations)} conversations from API")
 
             # Save to DB
             try:
                 self.database.save_conversations(conversations)
+                logger.debug(f"Saved {len(conversations)} conversations to cache")
             except Exception as e:
                 logger.error(f"Error saving conversations to DB: {e}")
 
@@ -445,15 +451,17 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
     def _load_messages(self, conversation_id: str) -> None:
         """Load messages for a conversation from DB and then sync."""
         self._current_conversation_id = conversation_id
-        
-        # 1. Load from DB
+
+        # 1. Load from DB first (should be instant)
         try:
             local_messages = self.database.get_messages(conversation_id)
-            self._update_messages_list(local_messages)
+            logger.info(f"Loaded {len(local_messages)} messages from cache for conversation {conversation_id[:8]}...")
+            if local_messages:
+                self._update_messages_list(local_messages, from_cache=True)
         except Exception as e:
             logger.error(f"Error loading local messages: {e}")
 
-        # 2. Sync with API
+        # 2. Sync with API (in background)
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
 
@@ -477,18 +485,21 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         def on_complete(messages: list[Message] | Exception) -> None:
             if isinstance(messages, Exception):
-                logger.error(f"Failed to load messages: {messages}")
+                logger.error(f"Failed to load messages from API: {messages}")
                 return
+
+            logger.info(f"Loaded {len(messages)} messages from API for conversation {conversation_id[:8]}...")
 
             # Save to DB
             try:
                 self.database.save_messages(messages)
+                logger.debug(f"Saved {len(messages)} messages to cache")
             except Exception as e:
                 logger.error(f"Error saving messages to DB: {e}")
 
             # Only update if we're still looking at the same conversation
             if self._current_conversation_id == conversation_id:
-                self._update_messages_list(messages)
+                self._update_messages_list(messages, from_cache=False)
 
         def thread_func() -> None:
             result = fetch()
@@ -497,8 +508,24 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         thread = threading.Thread(target=thread_func, daemon=True)
         thread.start()
 
-    def _update_messages_list(self, messages: list[Message]) -> None:
-        """Update the messages list UI."""
+    def _update_messages_list(self, messages: list[Message], from_cache: bool = True) -> None:
+        """Update the messages list UI.
+
+        Args:
+            messages: List of messages to display
+            from_cache: True if loading from cache (always display),
+                       False if from API (skip if unchanged)
+        """
+        # If loading from API and messages haven't changed, skip update
+        if not from_cache:
+            if self._messages_equal(self._current_messages, messages):
+                logger.debug("Messages unchanged from cache, skipping UI update")
+                return
+            logger.debug("Messages changed from API, updating UI")
+
+        # Always update from cache
+        self._current_messages = messages
+
         # Clear messages
         child = self.messages_list.get_first_child()
         while child is not None:
@@ -510,6 +537,19 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         for msg in messages:
             widget = MessageWidget(role=msg.role, content=msg.content)
             self.messages_list.append(widget)
+
+        # Scroll to bottom
+        adjustment = self.messages_scroll.get_vadjustment()
+        adjustment.set_value(adjustment.get_upper() - adjustment.get_page_size())
+
+    def _messages_equal(self, msgs1: list[Message], msgs2: list[Message]) -> bool:
+        """Compare two message lists for equality."""
+        if len(msgs1) != len(msgs2):
+            return False
+        for m1, m2 in zip(msgs1, msgs2):
+            if m1.id != m2.id or m1.content != m2.content or m1.role != m2.role:
+                return False
+        return True
 
     def _on_send(self, widget: Gtk.Widget) -> None:
         """Handle send button click."""
