@@ -89,7 +89,7 @@ class Database:
 
     def save_conversation(self, conversation: Conversation) -> None:
         """Save or update a conversation."""
-        data = conversation.model_dump(by_alias=True)
+        data = conversation.model_dump(mode='json', by_alias=True)
         with self.connection as conn:
             conn.execute(
                 """
@@ -120,7 +120,7 @@ class Database:
         """Save multiple conversations in a transaction."""
         with self.connection as conn:
             for conv in conversations:
-                data = conv.model_dump(by_alias=True)
+                data = conv.model_dump(mode='json', by_alias=True)
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO conversations (
@@ -175,7 +175,7 @@ class Database:
 
     def save_message(self, message: Message) -> None:
         """Save or update a message."""
-        data = message.model_dump(by_alias=True)
+        data = message.model_dump(mode='json', by_alias=True)
         with self.connection as conn:
             conn.execute(
                 """
@@ -203,7 +203,7 @@ class Database:
         """Save multiple messages in a transaction."""
         with self.connection as conn:
             for msg in messages:
-                data = msg.model_dump(by_alias=True)
+                data = msg.model_dump(mode='json', by_alias=True)
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO messages (
