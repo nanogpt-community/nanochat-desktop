@@ -651,8 +651,7 @@ git tag -a v0.2.0 -m "Release v0.2.0 - Enhanced UX"
 git push origin v0.2.0 --tags
 
 # Create GitHub release with:
-# - nanochat-v0.2.0.flatpak
-# - nanochat-v0.2.0-x86_64.AppImage
+# - com.nanogpt.NanoChat-0.2.0.flatpak
 # - Changelog highlighting new features
 ```
 
