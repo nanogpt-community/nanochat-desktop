@@ -6,7 +6,7 @@ AppDir:
     id: com.nanogpt.NanoChat
     name: NanoChat
     icon: com.nanogpt.NanoChat
-    version: 0.1.0
+    version: 0.2.0
     exec: usr/bin/nanochat
     exec_args: $@
 
@@ -50,4 +50,4 @@ AppImage:
   arch: x86_64
   update-information: guess
   sign-key: None
-  file_name: NanoChat-0.1.0-x86_64.AppImage
+  file_name: NanoChat-0.2.0-x86_64.AppImage
