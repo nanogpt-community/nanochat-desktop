@@ -13,23 +13,25 @@ finish-args:
   - --filesystem=xdg-run/keyring
 
 modules:
-  - name: python3-dependencies
+  - name: python3-modules
     buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
     build-commands:
-      - pip3 install --prefix=/app --no-deps .
-    sources:
-      # In a real setup, generate this section with flatpak-pip-generator
-      # python3 -m flatpak_pip_generator requirements.txt
-      - type: file
-        path: ../pyproject.toml
-        dest-filename: pyproject.toml
+      - pip3 install --prefix=/app httpx>=0.27.0 pydantic>=2.5.0 keyring>=24.0.0 tomli>=2.0.0 tomli-w>=1.0.0
+    sources: []
 
   - name: nanochat
     buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
     build-commands:
       - pip3 install --prefix=/app --no-deps .
-      - install -D data/com.nanogpt.NanoChat.desktop /app/share/applications/com.nanogpt.NanoChat.desktop
-      - install -D data/icons/com.nanogpt.NanoChat.svg /app/share/icons/hicolor/scalable/apps/com.nanogpt.NanoChat.svg
+      - install -Dm644 data/com.nanogpt.NanoChat.desktop /app/share/applications/com.nanogpt.NanoChat.desktop
+      - install -Dm644 data/icons/com.nanogpt.NanoChat.svg /app/share/icons/hicolor/scalable/apps/com.nanogpt.NanoChat.svg
+      - install -Dm644 LICENSE /app/share/licenses/com.nanogpt.NanoChat/LICENSE
     sources:
       - type: dir
         path: ..
