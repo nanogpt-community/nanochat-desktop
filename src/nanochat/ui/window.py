@@ -111,6 +111,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         # Model selector dropdown
         self.model_selector = Gtk.DropDown()
         self.model_selector.set_tooltip_text("Select Model")
+        self.model_selector.connect("notify::selected", self._on_model_changed)
         header.set_title_widget(self.model_selector)
 
         # Settings button
@@ -175,6 +176,16 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         if not self._model_ids:
             self._load_models()
         self._load_conversations()
+
+    def _on_model_changed(self, dropdown: Gtk.DropDown, param: object) -> None:
+        """Handle model selection change."""
+        selected_idx = dropdown.get_selected()
+        if selected_idx != Gtk.INVALID_LIST_POSITION and selected_idx < len(self._model_ids):
+            model_id = self._model_ids[selected_idx]
+            # Only save if different (though notify usually implies change, but good to be safe)
+            if self.settings_manager.settings.chat.default_model != model_id:
+                self.settings_manager.settings.chat.default_model = model_id
+                self.settings_manager.save()
 
     def _load_models(self) -> None:
         """Load models from API."""
@@ -289,15 +300,124 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         # Add conversations
         for conv in conversations:
-            row = Adw.ActionRow()
-            row.set_title(conv.title)
-            # Store conversation ID in row name for retrieval
-            row.set_name(conv.id)
+            row = self._create_conversation_row(conv)
             self.conversation_list.append(row)
 
             # Restore selection if this is the current conversation
             if self._current_conversation_id and conv.id == self._current_conversation_id:
                 self.conversation_list.select_row(row)
+
+    def _create_conversation_row(self, conv: Conversation) -> Adw.ActionRow:
+        """Create a row for the conversation list with delete button."""
+        row = Adw.ActionRow()
+        row.set_title(conv.title)
+        row.set_name(conv.id)
+
+        # Delete button
+        delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        delete_btn.add_css_class("flat")
+        delete_btn.set_valign(Gtk.Align.CENTER)
+        delete_btn.set_tooltip_text("Delete Conversation")
+        delete_btn.set_opacity(0)
+        delete_btn.set_sensitive(False)
+        delete_btn.connect("clicked", lambda _, c_id=conv.id: self._confirm_delete(c_id))
+
+        row.add_suffix(delete_btn)
+
+        # Hover controller
+        controller = Gtk.EventControllerMotion()
+        
+        def on_enter(ctrl: Gtk.EventControllerMotion, x: float, y: float) -> None:
+            delete_btn.set_opacity(1)
+            delete_btn.set_sensitive(True)
+        
+        def on_leave(ctrl: Gtk.EventControllerMotion) -> None:
+            delete_btn.set_opacity(0)
+            delete_btn.set_sensitive(False)
+
+        controller.connect("enter", on_enter)
+        controller.connect("leave", on_leave)
+        row.add_controller(controller)
+
+        return row
+
+    def _confirm_delete(self, conversation_id: str) -> None:
+        """Show confirmation dialog for deletion."""
+        # Find conversation title
+        title = "this conversation"
+        for conv in self._conversations:
+            if conv.id == conversation_id:
+                title = f'"{conv.title}"'
+                break
+
+        dialog = Adw.MessageDialog(
+            transient_for=self,
+            heading="Delete Conversation?",
+            body=f"Are you sure you want to delete {title}? This cannot be undone.",
+        )
+        
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        
+        def on_response(dialog: Adw.MessageDialog, response: str) -> None:
+            if response == "delete":
+                self._delete_conversation(conversation_id)
+        
+        dialog.connect("response", on_response)
+        dialog.present()
+
+    def _delete_conversation(self, conversation_id: str) -> None:
+        """Delete conversation from API and DB."""
+        # Optimistically remove from UI
+        self._remove_conversation_from_ui(conversation_id)
+        
+        # If deleted current conversation, clear view
+        if self._current_conversation_id == conversation_id:
+            self.new_conversation()
+
+        url = self.settings_manager.settings.server.backend_url
+        key = self.secrets_manager.get_api_key()
+
+        def delete_task() -> None:
+            # Delete from DB
+            try:
+                self.database.delete_conversation(conversation_id)
+            except Exception as e:
+                print(f"Error deleting from DB: {e}")
+
+            if not url or not key:
+                return
+
+            # Delete from API
+            try:
+                from nanochat.api.client import NanoChatClient
+                import asyncio
+                
+                async def do_delete() -> None:
+                    async with NanoChatClient(url, key) as client:
+                        await client.delete_conversation(conversation_id)
+                
+                loop = asyncio.new_event_loop()
+                loop.run_until_complete(do_delete())
+                loop.close()
+            except Exception as e:
+                GLib.idle_add(self._show_error, f"Failed to delete from server: {e}")
+
+        thread = threading.Thread(target=delete_task, daemon=True)
+        thread.start()
+
+    def _remove_conversation_from_ui(self, conversation_id: str) -> None:
+        """Remove conversation row from list."""
+        child = self.conversation_list.get_first_child()
+        while child is not None:
+            row = child
+            if isinstance(row, Adw.ActionRow) and row.get_name() == conversation_id:
+                self.conversation_list.remove(row)
+                break
+            child = row.get_next_sibling()
 
     def _on_conversation_selected(self, list_box: Gtk.ListBox) -> None:
         """Handle conversation selection."""
