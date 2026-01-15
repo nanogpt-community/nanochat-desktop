@@ -80,7 +80,7 @@ class GenerateMessageRequest(BaseModel):
     model_id: str
     assistant_id: Optional[str] = Field(default=None, alias="assistantId")
     project_id: Optional[str] = Field(default=None, alias="projectId")
-    conversation_id: Optional[str] = Field(default=None, alias="conversationId")
+    conversation_id: Optional[str] = None
     web_search_enabled: Optional[bool] = Field(default=None, alias="webSearchEnabled")
     web_search_mode: Optional[str] = Field(default=None, alias="webSearchMode")
     reasoning_effort: Optional[str] = Field(default=None, alias="reasoningEffort")
