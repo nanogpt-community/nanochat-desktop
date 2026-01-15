@@ -349,10 +349,8 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self._conversations = conversations
         self._updating_conversation_list = True
 
-        # Track which row to select after the update is complete
-        row_to_select: Adw.ActionRow | None = None
-        should_unselect = False
-
+        # Block the "row-activated" signal during updates to prevent auto-selection issues
+        # (though we're now using click gestures, the listbox still has default behavior)
         try:
             # Clear list
             child = self.conversation_list.get_first_child()
@@ -366,23 +364,26 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 row = self._create_conversation_row(conv)
                 self.conversation_list.append(row)
 
-                # Remember which row to select (but don't select yet)
-                if self._current_conversation_id and conv.id == self._current_conversation_id:
-                    row_to_select = row
-
-            # Track if we should unselect all
-            if self._current_conversation_id is None:
-                should_unselect = True
-
         finally:
             self._updating_conversation_list = False
 
-        # Now select the row AFTER setting _updating_conversation_list to False
-        # This allows the selection handler to actually load the messages
-        if row_to_select:
-            self.conversation_list.select_row(row)
-        elif should_unselect:
-            self.conversation_list.unselect_all()
+        # Use idle_add to ensure selection state is set AFTER GTK has processed everything
+        def set_selection_state() -> bool:
+            # If no conversation is active (e.g. startup), ensure no row is selected
+            # This prevents GTK's auto-selection of the first item
+            if self._current_conversation_id is None:
+                self.conversation_list.unselect_all()
+            else:
+                # Find and select the current conversation
+                child = self.conversation_list.get_first_child()
+                while child is not None:
+                    if isinstance(child, Adw.ActionRow) and child.get_name() == self._current_conversation_id:
+                        self.conversation_list.select_row(child)
+                        break
+                    child = child.get_next_sibling()
+            return False  # Don't repeat
+
+        GLib.idle_add(set_selection_state)
 
     def _create_conversation_row(self, conv: Conversation) -> Adw.ActionRow:
         """Create a row for the conversation list with delete button."""
