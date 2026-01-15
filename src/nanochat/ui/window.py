@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+import logging
 
 import gi
 
@@ -15,6 +16,8 @@ from nanochat.data.database import Database
 from nanochat.data.settings import SettingsManager
 from nanochat.data.secrets import SecretsManager
 from nanochat.api.models import Conversation, Message
+
+logger = logging.getLogger(__name__)
 
 
 class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
@@ -215,7 +218,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         def on_complete(models: list[object] | Exception) -> None:
             if isinstance(models, Exception):
-                print(f"Failed to load models: {models}")
+                logger.error(f"Failed to load models: {models}")
                 return
 
             model_names = Gtk.StringList()
@@ -250,7 +253,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             local_conversations = self.database.get_conversations()
             self._update_conversation_list(local_conversations)
         except Exception as e:
-            print(f"Error loading local conversations: {e}")
+            logger.error(f"Error loading local conversations: {e}")
 
         # 2. Sync with API
         url = self.settings_manager.settings.server.backend_url
@@ -276,14 +279,14 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         def on_complete(conversations: list[Conversation] | Exception) -> None:
             if isinstance(conversations, Exception):
-                print(f"Failed to load conversations: {conversations}")
+                logger.error(f"Failed to load conversations: {conversations}")
                 return
 
             # Save to DB
             try:
                 self.database.save_conversations(conversations)
             except Exception as e:
-                print(f"Error saving conversations to DB: {e}")
+                logger.error(f"Error saving conversations to DB: {e}")
 
             self._update_conversation_list(conversations)
 
@@ -389,7 +392,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         try:
             self.database.delete_conversation(conversation_id)
         except Exception as e:
-            print(f"Error deleting from DB: {e}")
+            logger.error(f"Error deleting from DB: {e}")
 
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
@@ -442,7 +445,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             local_messages = self.database.get_messages(conversation_id)
             self._update_messages_list(local_messages)
         except Exception as e:
-            print(f"Error loading local messages: {e}")
+            logger.error(f"Error loading local messages: {e}")
 
         # 2. Sync with API
         url = self.settings_manager.settings.server.backend_url
@@ -468,14 +471,14 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         def on_complete(messages: list[Message] | Exception) -> None:
             if isinstance(messages, Exception):
-                print(f"Failed to load messages: {messages}")
+                logger.error(f"Failed to load messages: {messages}")
                 return
 
             # Save to DB
             try:
                 self.database.save_messages(messages)
             except Exception as e:
-                print(f"Error saving messages to DB: {e}")
+                logger.error(f"Error saving messages to DB: {e}")
 
             # Only update if we're still looking at the same conversation
             if self._current_conversation_id == conversation_id:
@@ -648,7 +651,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
     def _show_error(self, error: str) -> None:
         """Show error message to user and log it."""
-        print(f"Error: {error}")
+        logger.error(f"Error: {error}")
         
         toast = Adw.Toast.new(f"Error: {error}")
         toast.set_timeout(5)  # 5 seconds
