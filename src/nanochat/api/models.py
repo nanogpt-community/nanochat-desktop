@@ -77,7 +77,7 @@ class GenerateMessageRequest(BaseModel):
     """Request to generate a message."""
 
     message: Optional[str] = None
-    model_id: str = Field(alias="modelId")
+    model_id: str
     assistant_id: Optional[str] = Field(default=None, alias="assistantId")
     project_id: Optional[str] = Field(default=None, alias="projectId")
     conversation_id: Optional[str] = Field(default=None, alias="conversationId")

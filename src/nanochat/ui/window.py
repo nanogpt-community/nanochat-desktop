@@ -410,10 +410,13 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                     conversation_id=self._current_conversation_id,
                 )
 
+                payload = request.model_dump(exclude_none=True, by_alias=True)
+                print(f"DEBUG: Sending payload: {payload}")
+
                 try:
                     # Send the message (returns immediately with conversation_id)
                     async with NanoChatClient(url, key) as client:
-                        response = await client._request("POST", "/api/generate-message", json=request.model_dump(exclude_none=True, by_alias=True))
+                        response = await client._request("POST", "/api/generate-message", json=payload)
 
                         if "conversation_id" in response:
                             new_conv_id = response["conversation_id"]
