@@ -84,12 +84,12 @@ class NanoChatApplication(Adw.Application):
             self.settings_manager,
             self.secrets_manager,
             on_saved=self._on_setup_complete,
+            on_theme_changed=lambda: self._apply_theme(),
         )
         dialog.present()
 
     def _on_setup_complete(self) -> None:
         """Called when setup dialog saves settings."""
-        self._apply_theme()
         if self._window:
             self._window.reload_data()  # type: ignore[attr-defined]
 

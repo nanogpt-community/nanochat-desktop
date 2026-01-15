@@ -24,6 +24,7 @@ class SetupDialog(Adw.PreferencesWindow):  # type: ignore[misc]
         settings_manager: SettingsManager,
         secrets_manager: SecretsManager,
         on_saved: Optional[Callable[[], None]] = None,
+        on_theme_changed: Optional[Callable[[], None]] = None,
     ) -> None:
         super().__init__()
 
@@ -35,6 +36,7 @@ class SetupDialog(Adw.PreferencesWindow):  # type: ignore[misc]
         self._settings_manager = settings_manager
         self._secrets_manager = secrets_manager
         self._on_saved = on_saved
+        self._theme_changed_callback = on_theme_changed
         self._setup_ui()
         self._load_current_settings()
 
@@ -104,6 +106,9 @@ class SetupDialog(Adw.PreferencesWindow):  # type: ignore[misc]
         theme_map = {"system": 0, "light": 1, "dark": 2}
         self.theme_row.set_selected(theme_map.get(current_theme, 0))
 
+        # Connect to selection change for live theme updates
+        self.theme_row.connect("notify::selected", self._on_theme_changed)
+
         appearance_group.add(self.theme_row)
 
         # Save button in header
@@ -170,6 +175,20 @@ class SetupDialog(Adw.PreferencesWindow):  # type: ignore[misc]
 
         thread = threading.Thread(target=thread_func)
         thread.start()
+
+    def _on_theme_changed(self, row: Adw.ComboRow, pspec: object) -> None:
+        """Handle theme selection change - applies immediately."""
+        theme_map = {0: "system", 1: "light", 2: "dark"}
+        selected_theme = theme_map.get(row.get_selected(), "system")
+
+        # Update settings
+        if self._settings_manager.settings.ui.theme != selected_theme:
+            self._settings_manager.settings.ui.theme = selected_theme
+            self._settings_manager.save()
+
+            # Notify app to reload theme
+            if self._theme_changed_callback:
+                self._theme_changed_callback()
 
     def _on_save(self, button: Gtk.Button) -> None:
         """Save settings."""
