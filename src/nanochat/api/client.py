@@ -2,7 +2,7 @@
 
 import httpx
 import json
-from typing import AsyncGenerator, Optional
+from typing import Optional
 
 from .models import Conversation, Message, Model, GenerateMessageRequest
 from .exceptions import (
@@ -11,54 +11,6 @@ from .exceptions import (
     ConnectionError as APIConnectionError,
     RateLimitError,
 )
-
-
-class StreamEvent:
-    """Base class for streaming events."""
-
-    pass
-
-
-class TokenEvent(StreamEvent):
-    """Token received during streaming."""
-
-    def __init__(self, token: str) -> None:
-        self.token = token
-
-
-class ContentEvent(StreamEvent):
-    """Content delta received."""
-
-    def __init__(self, content: str) -> None:
-        self.content = content
-
-
-class ReasoningEvent(StreamEvent):
-    """Reasoning content received."""
-
-    def __init__(self, reasoning: str) -> None:
-        self.reasoning = reasoning
-
-
-class ConversationCreatedEvent(StreamEvent):
-    """New conversation created."""
-
-    def __init__(self, conversation_id: str, title: str) -> None:
-        self.conversation_id = conversation_id
-        self.title = title
-
-
-class StreamCompleteEvent(StreamEvent):
-    """Stream completed."""
-
-    pass
-
-
-class StreamErrorEvent(StreamEvent):
-    """Stream error occurred."""
-
-    def __init__(self, error: str) -> None:
-        self.error = error
 
 
 class NanoChatClient:
@@ -113,6 +65,15 @@ class NanoChatClient:
         data = await self._request("GET", "/api/db/conversations", params=params)
         return [Conversation.model_validate(c) for c in data]
 
+    async def get_conversation(self, conversation_id: str) -> Conversation:
+        """Get a single conversation by ID."""
+        data = await self._request(
+            "GET",
+            "/api/db/conversations",
+            params={"id": conversation_id},
+        )
+        return Conversation.model_validate(data)
+
     async def delete_conversation(self, conversation_id: str) -> None:
         """Delete a conversation."""
         await self._request("DELETE", "/api/db/conversations", params={"id": conversation_id})
@@ -126,61 +87,6 @@ class NanoChatClient:
             params={"conversationId": conversation_id},
         )
         return [Message.model_validate(m) for m in data]
-
-    async def stream_message(
-        self, request: GenerateMessageRequest
-    ) -> AsyncGenerator[StreamEvent, None]:
-        """Stream a message generation."""
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "Accept": "text/event-stream",
-        }
-
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/api/generate-message",
-                headers=headers,
-                json=request.model_dump(exclude_none=True, by_alias=True),
-            ) as response:
-                try:
-                    response.raise_for_status()
-                except httpx.HTTPStatusError as e:
-                    if e.response.status_code == 401:
-                        raise AuthenticationError("Invalid API key") from e
-                    if e.response.status_code == 429:
-                        raise RateLimitError("Rate limit exceeded") from e
-                    raise
-
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data = line[6:]
-                        if data == "[DONE]":
-                            yield StreamCompleteEvent()
-                            break
-
-                        try:
-                            event_data = json.loads(data)
-                            yield self._parse_sse_event(event_data)
-                        except json.JSONDecodeError:
-                            continue
-
-    def _parse_sse_event(self, data: dict[str, object]) -> StreamEvent:
-        """Parse SSE event data into appropriate event type."""
-        if "conversationId" in data and "conversationTitle" in data:
-            conv_id = str(data["conversationId"])
-            title = str(data["conversationTitle"])
-            return ConversationCreatedEvent(conv_id, title)
-        if "token" in data:
-            return TokenEvent(str(data["token"]))
-        if "content" in data:
-            return ContentEvent(str(data["content"]))
-        if "reasoning" in data:
-            return ReasoningEvent(str(data["reasoning"]))
-        if "error" in data:
-            return StreamErrorEvent(str(data["error"]))
-        return StreamEvent()
 
     # Models
     async def get_models(self) -> list[Model]:
