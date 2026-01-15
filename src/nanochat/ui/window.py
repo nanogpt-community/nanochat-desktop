@@ -109,7 +109,6 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self.conversation_list = Gtk.ListBox()
         self.conversation_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self.conversation_list.add_css_class("navigation-sidebar")
-        self.conversation_list.connect("selected-rows-changed", self._on_conversation_selected)
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_child(self.conversation_list)
@@ -350,6 +349,8 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self._conversations = conversations
         self._updating_conversation_list = True
 
+        # Block the "row-activated" signal during updates to prevent auto-selection issues
+        # (though we're now using click gestures, the listbox still has default behavior)
         try:
             # Clear list
             child = self.conversation_list.get_first_child()
@@ -363,15 +364,26 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 row = self._create_conversation_row(conv)
                 self.conversation_list.append(row)
 
-                # Restore selection if this is the current conversation
-                if self._current_conversation_id and conv.id == self._current_conversation_id:
-                    self.conversation_list.select_row(row)
-
-            # If no conversation is active (e.g. startup), ensure no row is selected
-            if self._current_conversation_id is None:
-                self.conversation_list.unselect_all()
         finally:
             self._updating_conversation_list = False
+
+        # Use idle_add to ensure selection state is set AFTER GTK has processed everything
+        def set_selection_state() -> bool:
+            # If no conversation is active (e.g. startup), ensure no row is selected
+            # This prevents GTK's auto-selection of the first item
+            if self._current_conversation_id is None:
+                self.conversation_list.unselect_all()
+            else:
+                # Find and select the current conversation
+                child = self.conversation_list.get_first_child()
+                while child is not None:
+                    if isinstance(child, Adw.ActionRow) and child.get_name() == self._current_conversation_id:
+                        self.conversation_list.select_row(child)
+                        break
+                    child = child.get_next_sibling()
+            return False  # Don't repeat
+
+        GLib.idle_add(set_selection_state)
 
     def _create_conversation_row(self, conv: Conversation) -> Adw.ActionRow:
         """Create a row for the conversation list with delete button."""
@@ -379,6 +391,11 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         row.set_title(conv.title)
         row.set_name(conv.id)
         row.add_css_class("conversation-row")
+
+        # Add click gesture controller for single-click activation
+        click = Gtk.GestureClick()
+        click.connect("pressed", self._on_row_clicked, conv.id)
+        row.add_controller(click)
 
         # Delete button
         delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
@@ -488,24 +505,18 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 break
             child = row.get_next_sibling()
 
-    def _on_conversation_selected(self, list_box: Gtk.ListBox) -> None:
-        """Handle conversation selection."""
-        selected_row = list_box.get_selected_row()
-        
+    def _on_row_clicked(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float, conversation_id: str) -> None:
+        """Handle row click event."""
+        # Only respond to single clicks (n_press == 1)
+        if n_press != 1:
+            return
+
         # Skip if we're updating the conversation list programmatically
         if self._updating_conversation_list:
             return
 
-        # Prevent auto-selection when no conversation should be active
-        # This handles GTK's default behavior of auto-selecting the first item
-        if self._current_conversation_id is None and selected_row is not None:
-            # We're in "new chat" mode - ignore this auto-selection
-            list_box.unselect_all()
-            return
-
-        if selected_row:
-            conv_id = selected_row.get_name()  # type: ignore[attr-defined]
-            self._load_messages(conv_id)
+        if conversation_id:
+            self._load_messages(conversation_id)
 
     def _load_messages(self, conversation_id: str) -> None:
         """Load messages for a conversation from DB and optionally sync with API."""
@@ -527,9 +538,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         local_messages = []
         try:
             local_messages = self.database.get_messages(conversation_id)
-            logger.debug(
-                f"Loaded {len(local_messages)} messages from cache for {conversation_id[:8]}..."
-            )
+            logger.debug(f"Loaded {len(local_messages)} messages from cache for {conversation_id[:8]}...")
         except Exception as e:
             logger.error(f"Error loading local messages: {e}")
 
@@ -540,14 +549,13 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         # 3. Skip API sync if cache is fresh (has data and not stale)
         if has_messages and not cache_is_stale:
-            logger.debug(f"Cache is fresh for {conversation_id[:8]}..., skipping API sync")
+            logger.debug(f"Cache is fresh for {conversation_id[:8]}, skipping API sync")
             # Update fetch time so we know we've seen this conversation
             if conversation_id not in self._conversation_fetch_time:
                 self._conversation_fetch_time[conversation_id] = current_time
             return
 
         # 4. Defer the API sync to run after the UI has rendered
-        # This ensures the cached messages display immediately
         def start_api_sync() -> bool:
             self._sync_messages_from_api(conversation_id, cache_is_stale)
             return False  # Don't repeat
