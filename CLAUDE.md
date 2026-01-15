@@ -133,26 +133,54 @@ headers = {
 }
 ```
 
-### SSE Streaming
-The `/api/generate-message` endpoint returns Server-Sent Events:
+### Message Generation (Polling-based)
+
+The `/api/generate-message` endpoint returns immediately with a `conversation_id`. The client must poll for the generated message content:
+
 ```python
-async def stream_message(request: GenerateMessageRequest):
-    async with httpx.AsyncClient() as client:
-        async with client.stream(
-            "POST",
-            f"{base_url}/api/generate-message",
-            headers=headers,
-            json=request.model_dump(exclude_none=True)
-        ) as response:
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    data = line[6:]
-                    if data == "[DONE]":
-                        yield StreamComplete()
-                    else:
-                        event = parse_sse_event(data)
-                        yield event
+async def generate_message_with_polling(request: GenerateMessageRequest):
+    # 1. Send the message (returns immediately with conversation_id)
+    response = await client._request(
+        "POST",
+        "/api/generate-message",
+        json=request.model_dump(exclude_none=True, by_alias=True)
+    )
+    conversation_id = response.get("conversation_id")
+
+    # 2. Poll for messages and conversation status
+    max_polls = 600  # 5 minutes at 0.5s intervals
+    last_content = ""
+
+    for _ in range(max_polls):
+        await asyncio.sleep(0.5)
+
+        # Check conversation status to see if still generating
+        conversation = await client.get_conversation(conversation_id)
+
+        # Get messages
+        messages = await client.get_messages(conversation_id)
+
+        # Find assistant message and update if content changed
+        for msg in messages:
+            if msg.role == "assistant" and msg.content:
+                if msg.content != last_content:
+                    last_content = msg.content
+                    # Update UI with new content
+                    ...
+
+        # Stop polling when generation is complete
+        if not conversation.generating:
+            break
+
+    return last_content
 ```
+
+**Key Points:**
+- The API returns immediately with `conversation_id` - it does NOT use SSE streaming
+- Poll `/api/db/messages?conversationId={id}` every 0.5 seconds for updated content
+- Poll `/api/db/conversations?id={id}` to check the `generating` field
+- Stop when `generating` is `false` or when complete content is received
+- The `Conversation` model has a `generating: bool` field that indicates active generation
 
 ### Error Handling
 ```python

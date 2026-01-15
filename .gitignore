@@ -179,4 +179,13 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
-/plans
+plans/README.md
+plans/phase-5-polish.md
+plans/phase-4-advanced-features.md
+plans/phase-3-assistants-projects.md
+plans/phase-2-enhanced-ux.md
+plans/phase-1-mvp.md
+plans/nanochat-desktop-development-plan.md
+plans/github-workflow.md
+plans/future-enhancements.md
+plans/api-docs.md

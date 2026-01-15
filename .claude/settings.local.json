@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(tree:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(ls:*)",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(pkg-config:*)",
+      "Bash(export:*)",
+      "Bash(export LD_LIBRARY_PATH=\"/home/linuxbrew/.linuxbrew/lib:$LD_LIBRARY_PATH:*)",
+      "Bash(export PATH=\"/home/linuxbrew/.linuxbrew/bin:$PATH\":*)",
+      "Bash(. /var/home/mark/projects/nanochat-desktop-v2/venv/bin/activate)",
+      "Bash(PKG_CONFIG_PATH=\"/home/linuxbrew/.linuxbrew/lib/pkgconfig:/home/linuxbrew/.linuxbrew/share/pkgconfig:$PKG_CONFIG_PATH\" LD_LIBRARY_PATH=\"/home/linuxbrew/.linuxbrew/lib:$LD_LIBRARY_PATH\" PATH=\"$PATH:/home/linuxbrew/.linuxbrew/bin\" /var/home/mark/projects/nanochat-desktop-v2/venv/bin/pip install PyGObject httpx pydantic keyring tomli-w)",
+      "Bash(python:*)",
+      "Bash(/var/home/mark/projects/nanochat-desktop-v2/venv/bin/python:*)",
+      "Bash(venv/bin/pip install:*)",
+      "Bash(sudo dnf install:*)",
+      "Bash(pkill:*)",
+      "Bash(venv/bin/python:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
