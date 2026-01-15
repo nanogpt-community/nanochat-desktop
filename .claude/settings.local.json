@@ -20,7 +20,9 @@
       "Bash(pkill:*)",
       "Bash(venv/bin/python:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(test:*)",
+      "Bash(git check-ignore:*)"
     ]
   }
 }
