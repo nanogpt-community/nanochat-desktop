@@ -75,6 +75,37 @@ class SetupDialog(Adw.PreferencesWindow):  # type: ignore[misc]
         self.status_label.set_margin_top(8)
         conn_group.add(self.status_label)
 
+        # UI page for appearance settings
+        ui_page = Adw.PreferencesPage()
+        ui_page.set_title("Appearance")
+        ui_page.set_icon_name("applications-graphics-symbolic")
+        self.add(ui_page)
+
+        # Appearance group
+        appearance_group = Adw.PreferencesGroup()
+        appearance_group.set_title("Appearance")
+        appearance_group.set_description("Customize the look and feel")
+        ui_page.add(appearance_group)
+
+        # Theme selector
+        self.theme_row = Adw.ComboRow()
+        self.theme_row.set_title("Theme")
+        self.theme_row.set_subtitle("Choose your preferred color scheme")
+
+        # Create theme options
+        theme_list = Gtk.StringList()
+        theme_list.append("System")
+        theme_list.append("Light")
+        theme_list.append("Dark")
+        self.theme_row.set_model(theme_list)
+
+        # Set current selection
+        current_theme = self._settings_manager.settings.ui.theme
+        theme_map = {"system": 0, "light": 1, "dark": 2}
+        self.theme_row.set_selected(theme_map.get(current_theme, 0))
+
+        appearance_group.add(self.theme_row)
+
         # Save button in header
         save_btn = Gtk.Button(label="Save")
         save_btn.add_css_class("suggested-action")
@@ -158,12 +189,21 @@ class SetupDialog(Adw.PreferencesWindow):  # type: ignore[misc]
         saved = False
         if url:
             self._settings_manager.settings.server.backend_url = url
-            self._settings_manager.save()
             saved = True
 
         if key:
             self._secrets_manager.set_api_key(key)
             saved = True
+
+        # Save theme selection
+        theme_map = {0: "system", 1: "light", 2: "dark"}
+        selected_theme = theme_map.get(self.theme_row.get_selected(), "system")
+        if self._settings_manager.settings.ui.theme != selected_theme:
+            self._settings_manager.settings.ui.theme = selected_theme
+            saved = True
+
+        if saved:
+            self._settings_manager.save()
 
         # Call callback if settings were saved
         if saved and self._on_saved:

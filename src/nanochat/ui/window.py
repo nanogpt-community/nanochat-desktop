@@ -70,6 +70,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         """Create sidebar with conversation list."""
         page = Adw.NavigationPage()
         page.set_title("Conversations")
+        page.add_css_class("sidebar")
 
         # Toolbar view for header + content
         toolbar_view = Adw.ToolbarView()
@@ -78,6 +79,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         # Header bar
         header = Adw.HeaderBar()
         header.set_show_end_title_buttons(False)
+        header.add_css_class("sidebar-header")
 
         # New chat button
         new_btn = Gtk.Button(icon_name="list-add-symbolic")
@@ -157,6 +159,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         box.set_margin_end(12)
         box.set_margin_bottom(12)
         box.add_css_class("linked")
+        box.add_css_class("chat-input-box")
 
         # Text entry
         self.message_entry = Gtk.Entry()
@@ -170,6 +173,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self.send_btn = Gtk.Button(icon_name="mail-send-symbolic")
         self.send_btn.set_tooltip_text("Send Message")
         self.send_btn.add_css_class("suggested-action")
+        self.send_btn.add_css_class("send-button")
         self.send_btn.set_sensitive(True)
         self.send_btn.connect("clicked", self._on_send)
         box.append(self.send_btn)
@@ -322,10 +326,12 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         row = Adw.ActionRow()
         row.set_title(conv.title)
         row.set_name(conv.id)
+        row.add_css_class("conversation-row")
 
         # Delete button
         delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
         delete_btn.add_css_class("flat")
+        delete_btn.add_css_class("delete-button")
         delete_btn.set_valign(Gtk.Align.CENTER)
         delete_btn.set_tooltip_text("Delete Conversation")
         delete_btn.set_opacity(0)
@@ -634,8 +640,14 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         if is_sending:
             self.message_entry.set_placeholder_text("Generating response...")
+            self.send_btn.add_css_class("generating")
+            self.send_btn.set_icon_name("media-playback-stop-symbolic")
+            self.send_btn.set_tooltip_text("Stop generating")
         else:
             self.message_entry.set_placeholder_text("Type a message...")
+            self.send_btn.remove_css_class("generating")
+            self.send_btn.set_icon_name("mail-send-symbolic")
+            self.send_btn.set_tooltip_text("Send Message")
 
     def _update_assistant_message(self, content: str) -> None:
         """Update or create assistant message widget."""
