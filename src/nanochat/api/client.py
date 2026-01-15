@@ -52,7 +52,6 @@ class NanoChatClient:
                 raise AuthenticationError("Invalid API key") from e
             if e.response.status_code == 429:
                 raise RateLimitError("Rate limit exceeded") from e
-            print(f"API Error Response: {e.response.text}")
             raise NanoChatAPIError(f"API error: {e.response.status_code}") from e
         except httpx.NetworkError as e:
             raise APIConnectionError("Cannot connect to server") from e
