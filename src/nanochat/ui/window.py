@@ -43,6 +43,8 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         # Track when we last fetched each conversation from API (for cache freshness)
         self._conversation_fetch_time: dict[str, float] = {}
         self._cache_stale_seconds: int = 300  # 5 minutes
+        # Track loading state for UI feedback
+        self._is_loading_conversations: bool = False
 
         self.set_default_size(1200, 800)
         self.set_title("NanoChat")
@@ -90,6 +92,12 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         new_btn.set_tooltip_text("New Chat")
         new_btn.connect("clicked", lambda _: self.new_conversation())
         header.pack_start(new_btn)
+
+        # Refresh button
+        self.refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic")
+        self.refresh_btn.set_tooltip_text("Refresh Conversations")
+        self.refresh_btn.connect("clicked", self._on_refresh_conversations)
+        header.pack_start(self.refresh_btn)
 
         toolbar_view.add_top_bar(header)
 
@@ -254,16 +262,21 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         thread = threading.Thread(target=thread_func, daemon=True)
         thread.start()
 
-    def _load_conversations(self) -> None:
-        """Load conversations from DB and then sync with API."""
-        # 1. Load from local DB first (should be instant)
-        try:
-            local_conversations = self.database.get_conversations()
-            logger.info(f"Loaded {len(local_conversations)} conversations from cache")
-            if local_conversations:
-                self._update_conversation_list(local_conversations)
-        except Exception as e:
-            logger.error(f"Error loading local conversations: {e}")
+    def _load_conversations(self, force_refresh: bool = False) -> None:
+        """Load conversations from DB and then sync with API.
+
+        Args:
+            force_refresh: If True, skip cache and fetch directly from API
+        """
+        # 1. Load from local DB first (should be instant), unless force refresh
+        if not force_refresh:
+            try:
+                local_conversations = self.database.get_conversations()
+                logger.info(f"Loaded {len(local_conversations)} conversations from cache")
+                if local_conversations:
+                    self._update_conversation_list(local_conversations)
+            except Exception as e:
+                logger.error(f"Error loading local conversations: {e}")
 
         # 2. Sync with API (in background)
         url = self.settings_manager.settings.server.backend_url
@@ -271,6 +284,10 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         if not url or not key:
             return
+
+        # Show refresh button as loading
+        self.refresh_btn.set_sensitive(False)
+        self._is_loading_conversations = True
 
         def fetch() -> list[Conversation] | Exception:
             from nanochat.api.client import NanoChatClient
@@ -288,8 +305,14 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 return e
 
         def on_complete(conversations: list[Conversation] | Exception) -> None:
+            # Re-enable refresh button
+            self.refresh_btn.set_sensitive(True)
+            self._is_loading_conversations = False
+
             if isinstance(conversations, Exception):
                 logger.error(f"Failed to load conversations from API: {conversations}")
+                # Show toast for error
+                self.toast_overlay.add_toast(Adw.Toast(title="Failed to refresh conversations"))
                 return
 
             logger.info(f"Loaded {len(conversations)} conversations from API")
@@ -302,6 +325,10 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 logger.error(f"Error saving conversations to DB: {e}")
 
             self._update_conversation_list(conversations)
+
+            # Show success toast if this was a manual refresh
+            if force_refresh:
+                self.toast_overlay.add_toast(Adw.Toast(title=f"Refreshed {len(conversations)} conversations"))
 
         def thread_func() -> None:
             result = fetch()
@@ -479,11 +506,15 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         logger.info(f"Syncing {conversation_id[:8]}... with API (cache {'stale' if cache_is_stale else 'empty'})")
 
+        # Show loading indicator in header
+        self._show_loading_indicator("Retrieving messages...")
+
         # 3. Sync with API (in background)
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
 
         if not url or not key:
+            self._hide_loading_indicator()
             return
 
         def fetch() -> list[Message] | Exception:
@@ -502,8 +533,11 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 return e
 
         def on_complete(messages: list[Message] | Exception) -> None:
+            self._hide_loading_indicator()
+
             if isinstance(messages, Exception):
                 logger.error(f"Failed to load messages from API: {messages}")
+                self.toast_overlay.add_toast(Adw.Toast(title="Failed to load messages"))
                 return
 
             # Update fetch time
@@ -528,6 +562,20 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         thread = threading.Thread(target=thread_func, daemon=True)
         thread.start()
+
+    def _show_loading_indicator(self, message: str) -> None:
+        """Show loading indicator in the title bar."""
+        # Use the model selector to show loading state
+        if self.model_selector:
+            # Store original title
+            if not hasattr(self, '_original_model_title'):
+                self._original_model_title = ""
+            # We can't easily change the model selector, so we'll use a toast
+            self.toast_overlay.add_toast(Adw.Toast(title=message, timeout=2))
+
+    def _hide_loading_indicator(self) -> None:
+        """Hide loading indicator."""
+        pass  # Toast handles itself via timeout
 
     def _update_messages_list(self, messages: list[Message], from_cache: bool = True) -> None:
         """Update the messages list UI.
@@ -571,6 +619,13 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             if m1.id != m2.id or m1.content != m2.content or m1.role != m2.role:
                 return False
         return True
+
+    def _on_refresh_conversations(self, button: Gtk.Button) -> None:
+        """Handle refresh button click - force refresh conversations from API."""
+        # Clear cache timestamps to force refresh
+        self._conversation_fetch_time.clear()
+        # Reload conversations
+        self._load_conversations(force_refresh=True)
 
     def _on_send(self, widget: Gtk.Widget) -> None:
         """Handle send button click."""
