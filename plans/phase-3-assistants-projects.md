@@ -624,9 +624,254 @@ def _create_tables(self):
 
 ---
 
+## Tasks Migrated from Phase 2
+
+### Task 3.10: Conversation Search *(migrated from Task 2.1)*
+
+**Goal**: Allow users to search through their conversations
+
+**API Endpoint**:
+```
+GET /api/db/conversations?search=term&mode=fuzzy
+```
+
+**Files to modify:**
+- `src/nanochat/ui/window.py` - Add search entry to sidebar
+- `src/nanochat/api/client.py` - Add search parameter
+
+**Implementation:**
+
+1. Add search entry above conversation list:
+```python
+# In _create_sidebar()
+search_entry = Gtk.SearchEntry()
+search_entry.set_placeholder_text("Search conversations...")
+search_entry.connect("search-changed", self._on_search_changed)
+# Add with 300ms debounce
+```
+
+2. Update API client:
+```python
+async def get_conversations(
+    self,
+    project_id: Optional[str] = None,
+    search: Optional[str] = None,
+    mode: str = "fuzzy"  # exact, words, fuzzy
+) -> list[Conversation]:
+    params = {}
+    if project_id:
+        params["projectId"] = project_id
+    if search:
+        params["search"] = search
+        params["mode"] = mode
+    data = await self._request("GET", "/api/db/conversations", params=params)
+    return [Conversation.model_validate(c) for c in data]
+```
+
+3. Implement debounced search:
+```python
+def _on_search_changed(self, entry):
+    # Cancel previous search
+    if hasattr(self, "_search_timeout"):
+        GLib.source_remove(self._search_timeout)
+
+    # Schedule new search after 300ms
+    self._search_timeout = GLib.timeout_add(
+        300,
+        self._perform_search,
+        entry.get_text()
+    )
+```
+
+**Acceptance Criteria:**
+- [ ] Search entry appears in sidebar
+- [ ] Typing filters conversations
+- [ ] Search is debounced (300ms)
+- [ ] Empty search shows all conversations
+- [ ] Search works offline with cached data
+
+---
+
+### Task 3.11: Conversation Renaming *(migrated from Task 2.2)*
+
+**Goal**: Allow users to rename conversations
+
+**API Endpoint**:
+```
+POST /api/db/conversations
+{
+  "action": "updateTitle",
+  "conversationId": "string",
+  "title": "string"
+}
+```
+
+**Implementation:**
+
+1. Add rename action to conversation context menu
+2. Show inline entry or dialog for new title
+3. Update API and local cache
+
+```python
+# Context menu for conversation row
+def _on_conversation_right_click(self, gesture, n_press, x, y):
+    menu = Gio.Menu()
+    menu.append("Rename", f"win.rename-conversation::{conv_id}")
+    menu.append("Delete", f"win.delete-conversation::{conv_id}")
+
+    popover = Gtk.PopoverMenu.new_from_model(menu)
+    popover.set_parent(gesture.get_widget())
+    popover.popup()
+```
+
+**Acceptance Criteria:**
+- [ ] Right-click shows context menu
+- [ ] Rename option opens title editor
+- [ ] New title saved to server
+- [ ] UI updates immediately
+- [ ] Cancel reverts to original title
+
+---
+
+### Task 3.12: Message Actions *(migrated from Task 2.3)*
+
+**Goal**: Copy message content, potentially edit user messages
+
+**Implementation:**
+
+1. Add copy button to message widgets:
+```python
+class MessageWidget(Gtk.Box):
+    def _setup_actions(self):
+        # Copy button (appears on hover)
+        copy_btn = Gtk.Button(icon_name="edit-copy-symbolic")
+        copy_btn.set_tooltip_text("Copy to clipboard")
+        copy_btn.connect("clicked", self._on_copy)
+        copy_btn.add_css_class("flat")
+        self._action_box.append(copy_btn)
+
+    def _on_copy(self, button):
+        clipboard = Gdk.Display.get_default().get_clipboard()
+        clipboard.set(self._content)
+```
+
+2. Add hover reveal for action buttons:
+```css
+/* style.css */
+.message-actions {
+    opacity: 0;
+    transition: opacity 200ms;
+}
+
+.message-row:hover .message-actions {
+    opacity: 1;
+}
+```
+
+**Acceptance Criteria:**
+- [ ] Copy button appears on hover
+- [ ] Clicking copies content to clipboard
+- [ ] Toast notification confirms copy
+- [ ] Works for both user and assistant messages
+
+---
+
+### Task 3.13: Keyboard Shortcuts *(migrated from Task 2.4)*
+
+**Goal**: Enable efficient keyboard-driven usage
+
+**Shortcuts to implement:**
+
+| Shortcut | Action | Scope |
+|----------|--------|-------|
+| `Ctrl+N` | New conversation | Global |
+| `Ctrl+Q` | Quit | Global |
+| `Ctrl+,` | Settings | Global |
+| `Ctrl+K` | Focus search | Sidebar |
+| `Escape` | Cancel/close | Various |
+| `Ctrl+Enter` | Send message | Chat input |
+| `Up/Down` | Navigate conversations | Sidebar |
+| `Ctrl+Shift+C` | Copy last response | Chat |
+| `F2` | Rename conversation | Sidebar |
+
+**Implementation:**
+
+1. Add actions in `application.py`:
+```python
+def _setup_actions(self):
+    # ... existing actions ...
+
+    # Focus search
+    search_action = Gio.SimpleAction.new("focus-search", None)
+    search_action.connect("activate", self._on_focus_search)
+    self.add_action(search_action)
+    self.set_accels_for_action("app.focus-search", ["<Control>k"])
+```
+
+2. Add window-level keyboard controller:
+```python
+def _setup_keyboard(self):
+    controller = Gtk.EventControllerKey()
+    controller.connect("key-pressed", self._on_key_pressed)
+    self.add_controller(controller)
+
+def _on_key_pressed(self, controller, keyval, keycode, state):
+    # Handle Escape
+    if keyval == Gdk.KEY_Escape:
+        # Close dialog, cancel edit, etc.
+        return True
+    return False
+```
+
+**Acceptance Criteria:**
+- [ ] All shortcuts work as specified
+- [ ] Shortcuts shown in menus/tooltips
+- [ ] No conflicts with system shortcuts
+- [ ] Escape cancels current operation
+
+---
+
+### Task 3.14: System Tray Integration *(migrated from Task 2.6, lower priority)*
+
+**Goal**: Allow app to minimize to system tray (optional feature)
+
+**Note**: This is a lower priority feature as tray support varies by DE. Implement if time allows.
+
+**Implementation options:**
+- Use `Gtk.StatusIcon` (deprecated but works)
+- Use `AppIndicator3` (Ubuntu/GNOME)
+- Skip for KDE (background apps handled differently)
+
+**Basic implementation:**
+```python
+# Optional tray support
+try:
+    gi.require_version("AppIndicator3", "0.1")
+    from gi.repository import AppIndicator3
+    HAS_TRAY = True
+except:
+    HAS_TRAY = False
+
+if HAS_TRAY:
+    indicator = AppIndicator3.Indicator.new(
+        "nanochat",
+        "com.nanogpt.NanoChat",
+        AppIndicator3.IndicatorCategory.APPLICATION_STATUS
+    )
+    indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+```
+
+**Acceptance Criteria:**
+- [ ] Tray icon appears (where supported)
+- [ ] Click shows/hides window
+- [ ] Right-click shows menu with quit option
+- [ ] Graceful fallback where not supported
+
+---
+
 ## Definition of Done - Phase 3
 
-- [ ] All tasks completed
+- [ ] All tasks completed (Tasks 3.1-3.9 + Migrated Tasks 3.10-3.14)
 - [ ] Manual testing checklist:
   - [ ] Can list assistants
   - [ ] Can create/edit/delete assistants
@@ -637,6 +882,10 @@ def _create_tables(self):
   - [ ] Can filter by project
   - [ ] Can move conversations to projects
   - [ ] Offline mode works with cached data
+  - [ ] Search finds conversations
+  - [ ] Rename works
+  - [ ] Copy message works
+  - [ ] All keyboard shortcuts work
 - [ ] Code reviewed
 - [ ] Branch merged and tagged as `v0.3.0`
 - [ ] Release created with binaries
