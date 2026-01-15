@@ -5,39 +5,35 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Gio, GLib
+from gi.repository import Gio, Adw, GLib
 
 from nanochat.data.settings import SettingsManager
 from nanochat.data.secrets import SecretsManager
 
 
-class NanoChatApplication:  # type: ignore[misc]
+class NanoChatApplication(Adw.Application):
     """Main application class."""
 
     def __init__(self) -> None:
-        from gi.repository import Adw
-
-        self._app = Adw.Application(
+        super().__init__(
             application_id="com.nanogpt.NanoChat",
             flags=Gio.ApplicationFlags.DEFAULT_FLAGS,
         )
-        self._app.connect("startup", self._on_startup)
-        self._app.connect("activate", self._on_activate)
-
         self.settings_manager = SettingsManager()
         self.secrets_manager = SecretsManager()
         self._window: object = None
 
-    def _on_startup(self, app: object) -> None:
+    def do_startup(self) -> None:
         """Called when the application starts."""
+        Adw.Application.do_startup(self)
         self._setup_actions()
 
-    def _on_activate(self, app: object) -> None:
+    def do_activate(self) -> None:
         """Called when the application is activated."""
         if not self._window:
             from nanochat.ui.window import NanoChatWindow
             self._window = NanoChatWindow(
-                application=self._app,
+                application=self,
                 settings_manager=self.settings_manager,
                 secrets_manager=self.secrets_manager,
             )
@@ -52,21 +48,21 @@ class NanoChatApplication:  # type: ignore[misc]
         """Set up application actions."""
         # Quit action
         quit_action = Gio.SimpleAction.new("quit", None)
-        quit_action.connect("activate", lambda *_: self._app.quit())
-        self._app.add_action(quit_action)
-        self._app.set_accels_for_action("app.quit", ["<Control>q"])
+        quit_action.connect("activate", lambda *_: self.quit())
+        self.add_action(quit_action)
+        self.set_accels_for_action("app.quit", ["<Control>q"])
 
         # Settings action
         settings_action = Gio.SimpleAction.new("settings", None)
         settings_action.connect("activate", self._on_settings)
-        self._app.add_action(settings_action)
-        self._app.set_accels_for_action("app.settings", ["<Control>comma"])
+        self.add_action(settings_action)
+        self.set_accels_for_action("app.settings", ["<Control>comma"])
 
         # New chat action
         new_chat_action = Gio.SimpleAction.new("new-chat", None)
         new_chat_action.connect("activate", self._on_new_chat)
-        self._app.add_action(new_chat_action)
-        self._app.set_accels_for_action("app.new-chat", ["<Control>n"])
+        self.add_action(new_chat_action)
+        self.set_accels_for_action("app.new-chat", ["<Control>n"])
 
     def _is_configured(self) -> bool:
         """Check if app is configured."""
@@ -99,7 +95,3 @@ class NanoChatApplication:  # type: ignore[misc]
         """Handle new chat action."""
         if self._window:
             self._window.new_conversation()  # type: ignore[attr-defined]
-
-    def run(self, argv: list[str]) -> int:
-        """Run the application."""
-        return self._app.run(argv)
