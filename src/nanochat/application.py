@@ -9,6 +9,7 @@ from gi.repository import Gio, Adw, GLib
 
 from nanochat.data.settings import SettingsManager
 from nanochat.data.secrets import SecretsManager
+from nanochat.data.database import Database
 
 
 class NanoChatApplication(Adw.Application):
@@ -21,6 +22,7 @@ class NanoChatApplication(Adw.Application):
         )
         self.settings_manager = SettingsManager()
         self.secrets_manager = SecretsManager()
+        self.database = Database()
         self._window: object = None
 
     def do_startup(self) -> None:
@@ -36,6 +38,7 @@ class NanoChatApplication(Adw.Application):
                 application=self,
                 settings_manager=self.settings_manager,
                 secrets_manager=self.secrets_manager,
+                database=self.database,
             )
 
         self._window.present()  # type: ignore[attr-defined]

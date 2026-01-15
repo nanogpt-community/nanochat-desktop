@@ -11,18 +11,27 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib
 
 from nanochat.ui.message_widget import MessageWidget
+from nanochat.data.database import Database
+from nanochat.api.models import Conversation, Message
 
 
 class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
     """Main window with sidebar and chat area."""
 
-    def __init__(self, settings_manager: object, secrets_manager: object, **kwargs: object) -> None:
+    def __init__(
+        self,
+        settings_manager: object,
+        secrets_manager: object,
+        database: Database,
+        **kwargs: object
+    ) -> None:
         super().__init__(**kwargs)
 
         self.settings_manager = settings_manager
         self.secrets_manager = secrets_manager
+        self.database = database
         self._model_ids: list[str] = []
-        self._conversations: list[object] = []
+        self._conversations: list[Conversation] = []
         self._current_conversation_id: str | None = None
         self._is_sending: bool = False
 
@@ -213,17 +222,25 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         thread.start()
 
     def _load_conversations(self) -> None:
-        """Load conversations from API."""
+        """Load conversations from DB and then sync with API."""
+        # 1. Load from local DB first
+        try:
+            local_conversations = self.database.get_conversations()
+            self._update_conversation_list(local_conversations)
+        except Exception as e:
+            print(f"Error loading local conversations: {e}")
+
+        # 2. Sync with API
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
 
         if not url or not key:
             return
 
-        def fetch() -> list[object] | Exception:
+        def fetch() -> list[Conversation] | Exception:
             from nanochat.api.client import NanoChatClient
 
-            async def get_convs() -> list[object]:
+            async def get_convs() -> list[Conversation]:
                 async with NanoChatClient(url, key) as client:
                     return await client.get_conversations()
 
@@ -235,27 +252,18 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             except Exception as e:
                 return e
 
-        def on_complete(conversations: list[object] | Exception) -> None:
+        def on_complete(conversations: list[Conversation] | Exception) -> None:
             if isinstance(conversations, Exception):
                 print(f"Failed to load conversations: {conversations}")
                 return
 
-            self._conversations = conversations
+            # Save to DB
+            try:
+                self.database.save_conversations(conversations)
+            except Exception as e:
+                print(f"Error saving conversations to DB: {e}")
 
-            # Clear list
-            child = self.conversation_list.get_first_child()
-            while child is not None:
-                next_child = child.get_next_sibling()
-                self.conversation_list.remove(child)
-                child = next_child
-
-            # Add conversations
-            for conv in conversations:
-                row = Adw.ActionRow()
-                row.set_title(conv.title)  # type: ignore[attr-defined]
-                # Store conversation ID in row name for retrieval
-                row.set_name(conv.id)  # type: ignore[attr-defined]
-                self.conversation_list.append(row)
+            self._update_conversation_list(conversations)
 
         def thread_func() -> None:
             result = fetch()
@@ -263,6 +271,25 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         thread = threading.Thread(target=thread_func, daemon=True)
         thread.start()
+
+    def _update_conversation_list(self, conversations: list[Conversation]) -> None:
+        """Update the conversation list UI."""
+        self._conversations = conversations
+
+        # Clear list
+        child = self.conversation_list.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.conversation_list.remove(child)
+            child = next_child
+
+        # Add conversations
+        for conv in conversations:
+            row = Adw.ActionRow()
+            row.set_title(conv.title)
+            # Store conversation ID in row name for retrieval
+            row.set_name(conv.id)
+            self.conversation_list.append(row)
 
     def _on_conversation_selected(self, list_box: Gtk.ListBox) -> None:
         """Handle conversation selection."""
@@ -272,19 +299,27 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             self._load_messages(conv_id)
 
     def _load_messages(self, conversation_id: str) -> None:
-        """Load messages for a conversation."""
+        """Load messages for a conversation from DB and then sync."""
+        self._current_conversation_id = conversation_id
+        
+        # 1. Load from DB
+        try:
+            local_messages = self.database.get_messages(conversation_id)
+            self._update_messages_list(local_messages)
+        except Exception as e:
+            print(f"Error loading local messages: {e}")
+
+        # 2. Sync with API
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
-
-        self._current_conversation_id = conversation_id
 
         if not url or not key:
             return
 
-        def fetch() -> list[object] | Exception:
+        def fetch() -> list[Message] | Exception:
             from nanochat.api.client import NanoChatClient
 
-            async def get_msgs() -> list[object]:
+            async def get_msgs() -> list[Message]:
                 async with NanoChatClient(url, key) as client:
                     return await client.get_messages(conversation_id)
 
@@ -296,22 +331,20 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             except Exception as e:
                 return e
 
-        def on_complete(messages: list[object] | Exception) -> None:
+        def on_complete(messages: list[Message] | Exception) -> None:
             if isinstance(messages, Exception):
                 print(f"Failed to load messages: {messages}")
                 return
 
-            # Clear messages
-            child = self.messages_list.get_first_child()
-            while child is not None:
-                next_child = child.get_next_sibling()
-                self.messages_list.remove(child)
-                child = next_child
+            # Save to DB
+            try:
+                self.database.save_messages(messages)
+            except Exception as e:
+                print(f"Error saving messages to DB: {e}")
 
-            # Add messages
-            for msg in messages:
-                widget = MessageWidget(role=msg.role, content=msg.content)  # type: ignore[attr-defined]
-                self.messages_list.append(widget)
+            # Only update if we're still looking at the same conversation
+            if self._current_conversation_id == conversation_id:
+                self._update_messages_list(messages)
 
         def thread_func() -> None:
             result = fetch()
@@ -319,6 +352,20 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         thread = threading.Thread(target=thread_func, daemon=True)
         thread.start()
+
+    def _update_messages_list(self, messages: list[Message]) -> None:
+        """Update the messages list UI."""
+        # Clear messages
+        child = self.messages_list.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.messages_list.remove(child)
+            child = next_child
+
+        # Add messages
+        for msg in messages:
+            widget = MessageWidget(role=msg.role, content=msg.content)
+            self.messages_list.append(widget)
 
     def _on_send(self, widget: Gtk.Widget) -> None:
         """Handle send button click."""
@@ -344,60 +391,98 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self.message_entry.set_text("")
         self._set_sending_state(True)
 
-        # Start streaming response
+        # Start polling for response
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
 
         def stream_response() -> None:
-            from nanochat.api.client import (
-                NanoChatClient,
-                StreamEvent,
-                ContentEvent,
-                ConversationCreatedEvent,
-                StreamCompleteEvent,
-                StreamErrorEvent,
-                GenerateMessageRequest,
-            )
+            from nanochat.api.client import NanoChatClient
+            from nanochat.api.models import GenerateMessageRequest
 
-            async def do_stream() -> str | None:
+            async def do_poll() -> None:
                 request = GenerateMessageRequest(
                     message=text,
                     model_id=model_id,
                     conversation_id=self._current_conversation_id,
                 )
 
-                async with NanoChatClient(url, key) as client:
-                    # Create placeholder for assistant message
-                    assistant_content = [""]
+                try:
+                    # Send the message (returns immediately with conversation_id)
+                    async with NanoChatClient(url, key) as client:
+                        response = await client._request("POST", "/api/generate-message", json=request.model_dump(exclude_none=True, by_alias=True))
 
-                    def update_ui(content: str) -> None:
-                        assistant_content[0] = content
-                        GLib.idle_add(self._update_assistant_message, content)
+                        if "conversation_id" in response:
+                            new_conv_id = response["conversation_id"]
+                            GLib.idle_add(self._set_conversation_id, new_conv_id)
 
-                    async for event in client.stream_message(request):
-                        if isinstance(event, ContentEvent):
-                            update_ui(assistant_content[0] + event.content)
-                        elif isinstance(event, ConversationCreatedEvent):
-                            # Update current conversation ID when new one is created
-                            GLib.idle_add(self._set_conversation_id, event.conversation_id)
-                        elif isinstance(event, StreamCompleteEvent):
-                            # Reload conversations to show updated list
-                            GLib.idle_add(self._load_conversations)
-                            break
-                        elif isinstance(event, StreamErrorEvent):
-                            GLib.idle_add(self._show_error, event.error)
-                            break
+                            # Poll for messages and conversation status
+                            last_assistant_content = ""
+                            last_message_count = 0
+                            max_polls = 600  # 5 minutes at 0.5s intervals
+                            poll_count = 0
 
-                    return assistant_content[0]
+                            while poll_count < max_polls:
+                                poll_count += 1
+                                await asyncio.sleep(0.5)
+
+                                # Check conversation status (generating field)
+                                try:
+                                    conversation = await client.get_conversation(new_conv_id)
+                                except Exception:
+                                    # If we can't get conversation, fall back to checking messages only
+                                    conversation = None
+
+                                # Get messages
+                                messages = await client.get_messages(new_conv_id)
+
+                                # Check for new/updated messages
+                                if len(messages) > 0:
+                                    # Look for assistant messages
+                                    for msg in messages:
+                                        if msg.role == "assistant" and msg.content:
+                                            # Only update if content has changed
+                                            if msg.content != last_assistant_content:
+                                                last_assistant_content = msg.content
+                                                GLib.idle_add(self._update_assistant_message, msg.content)
+
+                                    # Check if generation is complete
+                                    # - conversation.generating is False, OR
+                                    # - we have an even number of messages (user+assistant pairs) with complete content
+                                    generation_complete = False
+
+                                    if conversation is not None:
+                                        if not conversation.generating:
+                                            generation_complete = True
+                                    else:
+                                        # Fallback: check if last message is a complete assistant response
+                                        if len(messages) >= 2 and messages[-1].role == "assistant" and messages[-1].content:
+                                            generation_complete = True
+
+                                    if generation_complete:
+                                        # Final update to ensure we have the latest content
+                                        if messages[-1].role == "assistant" and messages[-1].content:
+                                            GLib.idle_add(self._update_assistant_message, messages[-1].content)
+                                        GLib.idle_add(self._load_conversations)
+                                        break
+
+                            # If max polls reached, still reload conversations
+                            if poll_count >= max_polls:
+                                GLib.idle_add(self._load_conversations)
+
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    GLib.idle_add(self._show_error, str(e))
+                finally:
+                    GLib.idle_add(self._set_sending_state, False)
 
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                loop.run_until_complete(do_stream())
+                loop.run_until_complete(do_poll())
                 loop.close()
             except Exception as e:
                 GLib.idle_add(self._show_error, str(e))
-            finally:
                 GLib.idle_add(self._set_sending_state, False)
 
         thread = threading.Thread(target=stream_response, daemon=True)
