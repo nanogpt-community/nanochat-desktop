@@ -115,7 +115,7 @@ git push origin --tags
 # 1. Go to Releases > Draft a new release
 # 2. Select tag v0.1.0
 # 3. Set release title: "v0.1.0 - MVP Core Chat"
-# 4. Upload binary files (Flatpak, AppImage)
+# 4. Upload the Flatpak bundle (.flatpak file)
 # 5. Publish release
 ```
 
@@ -322,10 +322,11 @@ python -m nanochat
 NANOCHAT_DEBUG=1 python -m nanochat
 
 # Build Flatpak locally
-flatpak-builder --user --install build flatpak/com.nanogpt.NanoChat.yml
+flatpak-builder --user --install --force-clean build flatpak/com.nanogpt.NanoChat.yml
 
-# Build AppImage
-python -m python_appimage build app -p 3.11 .
+# Export Flatpak as single file
+flatpak build-export export build
+flatpak build-bundle export com.nanogpt.NanoChat-<version>.flatpak com.nanogpt.NanoChat
 
 # Check code style
 ruff check src/

@@ -13,8 +13,17 @@ class SecretsManager:
 
     @staticmethod
     def get_api_key() -> Optional[str]:
-        """Get stored API key."""
-        return keyring.get_password(KEYRING_SERVICE, "api_key")
+        """Get stored API key.
+
+        Returns None if the key is not found or cannot be decoded.
+        """
+        try:
+            return keyring.get_password(KEYRING_SERVICE, "api_key")
+        except (UnicodeDecodeError, keyring.errors.KeyringError, Exception):
+            # Handle corrupted keyring data or other errors
+            # Delete the corrupted entry and return None
+            SecretsManager.delete_api_key()
+            return None
 
     @staticmethod
     def set_api_key(api_key: str) -> None:
@@ -26,7 +35,8 @@ class SecretsManager:
         """Delete stored API key."""
         try:
             keyring.delete_password(KEYRING_SERVICE, "api_key")
-        except keyring.errors.PasswordDeleteError:
+        except Exception:
+            # Ignore errors when deleting (key may not exist)
             pass
 
     @staticmethod

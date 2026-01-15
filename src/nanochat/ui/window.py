@@ -1,21 +1,21 @@
 """Main application window."""
 
 import asyncio
-import threading
 import logging
+import threading
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Gtk, Adw, GLib
+from gi.repository import Adw, GLib, Gtk
 
-from nanochat.ui.message_widget import MessageWidget
-from nanochat.data.database import Database
-from nanochat.data.settings import SettingsManager
-from nanochat.data.secrets import SecretsManager
 from nanochat.api.models import Conversation, Message
+from nanochat.data.database import Database
+from nanochat.data.secrets import SecretsManager
+from nanochat.data.settings import SettingsManager
+from nanochat.ui.message_widget import MessageWidget
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         settings_manager: SettingsManager,
         secrets_manager: SecretsManager,
         database: Database,
-        **kwargs: object
+        **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)
 
@@ -38,7 +38,17 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self._model_ids: list[str] = []
         self._conversations: list[Conversation] = []
         self._current_conversation_id: str | None = None
+        self._current_messages: list[Message] = []
         self._is_sending: bool = False
+        # Track when we last fetched each conversation from API (for cache freshness)
+        self._conversation_fetch_time: dict[str, float] = {}
+        self._cache_stale_seconds: int = 300  # 5 minutes
+        # Track loading state for UI feedback
+        self._is_loading_conversations: bool = False
+        # Track in-progress API syncs to prevent duplicate requests
+        self._syncing_conversations: set[str] = set()
+        # Flag to prevent message reload during conversation list updates
+        self._updating_conversation_list: bool = False
 
         self.set_default_size(1200, 800)
         self.set_title("NanoChat")
@@ -52,7 +62,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         """Build the UI."""
         # Main layout with navigation split view
         self.split_view = Adw.NavigationSplitView()
-        
+
         # Wrap split view in toast overlay for notifications
         self.toast_overlay = Adw.ToastOverlay()
         self.toast_overlay.set_child(self.split_view)
@@ -70,6 +80,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         """Create sidebar with conversation list."""
         page = Adw.NavigationPage()
         page.set_title("Conversations")
+        page.add_css_class("sidebar")
 
         # Toolbar view for header + content
         toolbar_view = Adw.ToolbarView()
@@ -78,12 +89,19 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         # Header bar
         header = Adw.HeaderBar()
         header.set_show_end_title_buttons(False)
+        header.add_css_class("sidebar-header")
 
         # New chat button
         new_btn = Gtk.Button(icon_name="list-add-symbolic")
         new_btn.set_tooltip_text("New Chat")
         new_btn.connect("clicked", lambda _: self.new_conversation())
         header.pack_start(new_btn)
+
+        # Refresh button
+        self.refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic")
+        self.refresh_btn.set_tooltip_text("Refresh Conversations")
+        self.refresh_btn.connect("clicked", self._on_refresh_conversations)
+        header.pack_start(self.refresh_btn)
 
         toolbar_view.add_top_bar(header)
 
@@ -116,7 +134,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         # Model selector dropdown
         self.model_selector = Gtk.DropDown()
         self.model_selector.set_tooltip_text("Select Model")
-        self._model_change_handler = self.model_selector.connect("notify::selected", self._on_model_changed)
+        self._model_change_handler = self.model_selector.connect(
+            "notify::selected", self._on_model_changed
+        )
         header.set_title_widget(self.model_selector)
 
         # Settings button
@@ -157,6 +177,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         box.set_margin_end(12)
         box.set_margin_bottom(12)
         box.add_css_class("linked")
+        box.add_css_class("chat-input-box")
 
         # Text entry
         self.message_entry = Gtk.Entry()
@@ -170,6 +191,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self.send_btn = Gtk.Button(icon_name="mail-send-symbolic")
         self.send_btn.set_tooltip_text("Send Message")
         self.send_btn.add_css_class("suggested-action")
+        self.send_btn.add_css_class("send-button")
         self.send_btn.set_sensitive(True)
         self.send_btn.connect("clicked", self._on_send)
         box.append(self.send_btn)
@@ -229,14 +251,14 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
             # Block signal to prevent overwriting saved setting during setup
             self.model_selector.handler_block(self._model_change_handler)
-            
+
             self.model_selector.set_model(model_names)
 
             default = self.settings_manager.settings.chat.default_model
             if default in self._model_ids:
                 idx = self._model_ids.index(default)
                 self.model_selector.set_selected(idx)
-            
+
             self.model_selector.handler_unblock(self._model_change_handler)
 
         def thread_func() -> None:
@@ -246,21 +268,32 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         thread = threading.Thread(target=thread_func, daemon=True)
         thread.start()
 
-    def _load_conversations(self) -> None:
-        """Load conversations from DB and then sync with API."""
-        # 1. Load from local DB first
-        try:
-            local_conversations = self.database.get_conversations()
-            self._update_conversation_list(local_conversations)
-        except Exception as e:
-            logger.error(f"Error loading local conversations: {e}")
+    def _load_conversations(self, force_refresh: bool = False) -> None:
+        """Load conversations from DB and then sync with API.
 
-        # 2. Sync with API
+        Args:
+            force_refresh: If True, skip cache and fetch directly from API
+        """
+        # 1. Load from local DB first (should be instant), unless force refresh
+        if not force_refresh:
+            try:
+                local_conversations = self.database.get_conversations()
+                logger.info(f"Loaded {len(local_conversations)} conversations from cache")
+                if local_conversations:
+                    self._update_conversation_list(local_conversations)
+            except Exception as e:
+                logger.error(f"Error loading local conversations: {e}")
+
+        # 2. Sync with API (in background)
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
 
         if not url or not key:
             return
+
+        # Show refresh button as loading
+        self.refresh_btn.set_sensitive(False)
+        self._is_loading_conversations = True
 
         def fetch() -> list[Conversation] | Exception:
             from nanochat.api.client import NanoChatClient
@@ -278,17 +311,32 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 return e
 
         def on_complete(conversations: list[Conversation] | Exception) -> None:
+            # Re-enable refresh button
+            self.refresh_btn.set_sensitive(True)
+            self._is_loading_conversations = False
+
             if isinstance(conversations, Exception):
-                logger.error(f"Failed to load conversations: {conversations}")
+                logger.error(f"Failed to load conversations from API: {conversations}")
+                # Show toast for error
+                self.toast_overlay.add_toast(Adw.Toast(title="Failed to refresh conversations"))
                 return
+
+            logger.info(f"Loaded {len(conversations)} conversations from API")
 
             # Save to DB
             try:
                 self.database.save_conversations(conversations)
+                logger.debug(f"Saved {len(conversations)} conversations to cache")
             except Exception as e:
                 logger.error(f"Error saving conversations to DB: {e}")
 
             self._update_conversation_list(conversations)
+
+            # Show success toast if this was a manual refresh
+            if force_refresh:
+                self.toast_overlay.add_toast(
+                    Adw.Toast(title=f"Refreshed {len(conversations)} conversations")
+                )
 
         def thread_func() -> None:
             result = fetch()
@@ -300,32 +348,42 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
     def _update_conversation_list(self, conversations: list[Conversation]) -> None:
         """Update the conversation list UI."""
         self._conversations = conversations
+        self._updating_conversation_list = True
 
-        # Clear list
-        child = self.conversation_list.get_first_child()
-        while child is not None:
-            next_child = child.get_next_sibling()
-            self.conversation_list.remove(child)
-            child = next_child
+        try:
+            # Clear list
+            child = self.conversation_list.get_first_child()
+            while child is not None:
+                next_child = child.get_next_sibling()
+                self.conversation_list.remove(child)
+                child = next_child
 
-        # Add conversations
-        for conv in conversations:
-            row = self._create_conversation_row(conv)
-            self.conversation_list.append(row)
+            # Add conversations
+            for conv in conversations:
+                row = self._create_conversation_row(conv)
+                self.conversation_list.append(row)
 
-            # Restore selection if this is the current conversation
-            if self._current_conversation_id and conv.id == self._current_conversation_id:
-                self.conversation_list.select_row(row)
+                # Restore selection if this is the current conversation
+                if self._current_conversation_id and conv.id == self._current_conversation_id:
+                    self.conversation_list.select_row(row)
+
+            # If no conversation is active (e.g. startup), ensure no row is selected
+            if self._current_conversation_id is None:
+                self.conversation_list.unselect_all()
+        finally:
+            self._updating_conversation_list = False
 
     def _create_conversation_row(self, conv: Conversation) -> Adw.ActionRow:
         """Create a row for the conversation list with delete button."""
         row = Adw.ActionRow()
         row.set_title(conv.title)
         row.set_name(conv.id)
+        row.add_css_class("conversation-row")
 
         # Delete button
         delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
         delete_btn.add_css_class("flat")
+        delete_btn.add_css_class("delete-button")
         delete_btn.set_valign(Gtk.Align.CENTER)
         delete_btn.set_tooltip_text("Delete Conversation")
         delete_btn.set_opacity(0)
@@ -336,11 +394,11 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         # Hover controller
         controller = Gtk.EventControllerMotion()
-        
+
         def on_enter(ctrl: Gtk.EventControllerMotion, x: float, y: float) -> None:
             delete_btn.set_opacity(1)
             delete_btn.set_sensitive(True)
-        
+
         def on_leave(ctrl: Gtk.EventControllerMotion) -> None:
             delete_btn.set_opacity(0)
             delete_btn.set_sensitive(False)
@@ -365,17 +423,17 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             heading="Delete Conversation?",
             body=f"Are you sure you want to delete {title}? This cannot be undone.",
         )
-        
+
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("delete", "Delete")
         dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
-        
+
         def on_response(dialog: Adw.MessageDialog, response: str) -> None:
             if response == "delete":
                 self._delete_conversation(conversation_id)
-        
+
         dialog.connect("response", on_response)
         dialog.present()
 
@@ -383,7 +441,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         """Delete conversation from API and DB."""
         # Optimistically remove from UI
         self._remove_conversation_from_ui(conversation_id)
-        
+
         # If deleted current conversation, clear view
         if self._current_conversation_id == conversation_id:
             self.new_conversation()
@@ -403,13 +461,14 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
             # Delete from API
             try:
-                from nanochat.api.client import NanoChatClient
                 import asyncio
-                
+
+                from nanochat.api.client import NanoChatClient
+
                 async def do_delete() -> None:
                     async with NanoChatClient(url, key) as client:
                         await client.delete_conversation(conversation_id)
-                
+
                 loop = asyncio.new_event_loop()
                 loop.run_until_complete(do_delete())
                 loop.close()
@@ -432,27 +491,94 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
     def _on_conversation_selected(self, list_box: Gtk.ListBox) -> None:
         """Handle conversation selection."""
         selected_row = list_box.get_selected_row()
+        
+        # Skip if we're updating the conversation list programmatically
+        if self._updating_conversation_list:
+            return
+
+        # Prevent auto-selection when no conversation should be active
+        # This handles GTK's default behavior of auto-selecting the first item
+        if self._current_conversation_id is None and selected_row is not None:
+            # We're in "new chat" mode - ignore this auto-selection
+            list_box.unselect_all()
+            return
+
         if selected_row:
             conv_id = selected_row.get_name()  # type: ignore[attr-defined]
             self._load_messages(conv_id)
 
     def _load_messages(self, conversation_id: str) -> None:
-        """Load messages for a conversation from DB and then sync."""
+        """Load messages for a conversation from DB and optionally sync with API."""
+        import time
+
         self._current_conversation_id = conversation_id
-        
-        # 1. Load from DB
+
+        # If an API sync is already in progress for this conversation, just wait for it
+        if conversation_id in self._syncing_conversations:
+            logger.debug(f"API sync already in progress for {conversation_id[:8]}...")
+            return
+
+        # Check cache freshness BEFORE loading (to know if we should sync)
+        current_time = time.time()
+        last_fetch = self._conversation_fetch_time.get(conversation_id, 0)
+        cache_is_stale = (current_time - last_fetch) > self._cache_stale_seconds
+
+        # 1. Load from DB first (should be instant)
+        local_messages = []
         try:
             local_messages = self.database.get_messages(conversation_id)
-            self._update_messages_list(local_messages)
+            logger.debug(
+                f"Loaded {len(local_messages)} messages from cache for {conversation_id[:8]}..."
+            )
         except Exception as e:
             logger.error(f"Error loading local messages: {e}")
 
-        # 2. Sync with API
+        # 2. Update UI with cached messages (if any) - defer API sync to allow UI to render
+        has_messages = len(local_messages) > 0
+        if has_messages:
+            self._update_messages_list(local_messages, from_cache=True)
+
+        # 3. Skip API sync if cache is fresh (has data and not stale)
+        if has_messages and not cache_is_stale:
+            logger.debug(f"Cache is fresh for {conversation_id[:8]}..., skipping API sync")
+            # Update fetch time so we know we've seen this conversation
+            if conversation_id not in self._conversation_fetch_time:
+                self._conversation_fetch_time[conversation_id] = current_time
+            return
+
+        # 4. Defer the API sync to run after the UI has rendered
+        # This ensures the cached messages display immediately
+        def start_api_sync() -> bool:
+            self._sync_messages_from_api(conversation_id, cache_is_stale)
+            return False  # Don't repeat
+
+        GLib.idle_add(start_api_sync)
+
+    def _sync_messages_from_api(self, conversation_id: str, cache_is_stale: bool) -> None:
+        """Sync messages from API in background thread."""
+        import time
+
+        # Skip if already syncing this conversation
+        if conversation_id in self._syncing_conversations:
+            logger.debug(
+                f"Skipping duplicate sync for {conversation_id[:8]}... (already in progress)"
+            )
+            return
+
+        self._syncing_conversations.add(conversation_id)
+        logger.debug(f"Syncing {conversation_id[:8]}... with API")
+
+        # Show loading indicator
+        self._show_loading_indicator("Retrieving messages...")
+
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
 
         if not url or not key:
+            self._hide_loading_indicator()
             return
+
+        current_time = time.time()
 
         def fetch() -> list[Message] | Exception:
             from nanochat.api.client import NanoChatClient
@@ -470,9 +596,19 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 return e
 
         def on_complete(messages: list[Message] | Exception) -> None:
+            self._hide_loading_indicator()
+            # Remove from in-progress set
+            self._syncing_conversations.discard(conversation_id)
+
             if isinstance(messages, Exception):
-                logger.error(f"Failed to load messages: {messages}")
+                logger.error(f"Failed to load messages from API: {messages}")
+                self.toast_overlay.add_toast(Adw.Toast(title="Failed to load messages"))
                 return
+
+            # Update fetch time FIRST before any UI updates
+            self._conversation_fetch_time[conversation_id] = time.time()
+
+            logger.debug(f"Loaded {len(messages)} messages from API for {conversation_id[:8]}...")
 
             # Save to DB
             try:
@@ -482,7 +618,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
             # Only update if we're still looking at the same conversation
             if self._current_conversation_id == conversation_id:
-                self._update_messages_list(messages)
+                self._update_messages_list(messages, from_cache=False)
 
         def thread_func() -> None:
             result = fetch()
@@ -491,8 +627,38 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         thread = threading.Thread(target=thread_func, daemon=True)
         thread.start()
 
-    def _update_messages_list(self, messages: list[Message]) -> None:
-        """Update the messages list UI."""
+    def _show_loading_indicator(self, message: str) -> None:
+        """Show loading indicator in the title bar."""
+        # Use the model selector to show loading state
+        if self.model_selector:
+            # Store original title
+            if not hasattr(self, "_original_model_title"):
+                self._original_model_title = ""
+            # We can't easily change the model selector, so we'll use a toast
+            self.toast_overlay.add_toast(Adw.Toast(title=message, timeout=2))
+
+    def _hide_loading_indicator(self) -> None:
+        """Hide loading indicator."""
+        pass  # Toast handles itself via timeout
+
+    def _update_messages_list(self, messages: list[Message], from_cache: bool = True) -> None:
+        """Update the messages list UI.
+
+        Args:
+            messages: List of messages to display
+            from_cache: True if loading from cache (always display),
+                       False if from API (skip if unchanged)
+        """
+        # If loading from API and messages haven't changed, skip update
+        if not from_cache:
+            if self._messages_equal(self._current_messages, messages):
+                logger.debug("Messages unchanged from cache, skipping UI update")
+                return
+            logger.debug("Messages changed from API, updating UI")
+
+        # Always update from cache
+        self._current_messages = messages
+
         # Clear messages
         child = self.messages_list.get_first_child()
         while child is not None:
@@ -504,6 +670,26 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         for msg in messages:
             widget = MessageWidget(role=msg.role, content=msg.content)
             self.messages_list.append(widget)
+
+        # Scroll to bottom
+        adjustment = self.messages_scroll.get_vadjustment()
+        adjustment.set_value(adjustment.get_upper() - adjustment.get_page_size())
+
+    def _messages_equal(self, msgs1: list[Message], msgs2: list[Message]) -> bool:
+        """Compare two message lists for equality."""
+        if len(msgs1) != len(msgs2):
+            return False
+        for m1, m2 in zip(msgs1, msgs2):
+            if m1.id != m2.id or m1.content != m2.content or m1.role != m2.role:
+                return False
+        return True
+
+    def _on_refresh_conversations(self, button: Gtk.Button) -> None:
+        """Handle refresh button click - force refresh conversations from API."""
+        # Clear cache timestamps to force refresh
+        self._conversation_fetch_time.clear()
+        # Reload conversations
+        self._load_conversations(force_refresh=True)
 
     def _on_send(self, widget: Gtk.Widget) -> None:
         """Handle send button click."""
@@ -547,7 +733,11 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 try:
                     # Send the message (returns immediately with conversation_id)
                     async with NanoChatClient(url, key) as client:
-                        response = await client._request("POST", "/api/generate-message", json=request.model_dump(exclude_none=True, by_alias=True))
+                        response = await client._request(
+                            "POST",
+                            "/api/generate-message",
+                            json=request.model_dump(exclude_none=True, by_alias=True),
+                        )
 
                         if "conversation_id" in response:
                             new_conv_id = response["conversation_id"]
@@ -581,7 +771,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                                             # Only update if content has changed
                                             if msg.content != last_assistant_content:
                                                 last_assistant_content = msg.content
-                                                GLib.idle_add(self._update_assistant_message, msg.content)
+                                                GLib.idle_add(
+                                                    self._update_assistant_message, msg.content
+                                                )
 
                                     # Check if generation is complete
                                     # - conversation.generating is False, OR
@@ -593,13 +785,22 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                                             generation_complete = True
                                     else:
                                         # Fallback: check if last message is a complete assistant response
-                                        if len(messages) >= 2 and messages[-1].role == "assistant" and messages[-1].content:
+                                        if (
+                                            len(messages) >= 2
+                                            and messages[-1].role == "assistant"
+                                            and messages[-1].content
+                                        ):
                                             generation_complete = True
 
                                     if generation_complete:
                                         # Final update to ensure we have the latest content
-                                        if messages[-1].role == "assistant" and messages[-1].content:
-                                            GLib.idle_add(self._update_assistant_message, messages[-1].content)
+                                        if (
+                                            messages[-1].role == "assistant"
+                                            and messages[-1].content
+                                        ):
+                                            GLib.idle_add(
+                                                self._update_assistant_message, messages[-1].content
+                                            )
                                         GLib.idle_add(self._load_conversations)
                                         break
 
@@ -609,6 +810,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
                 except Exception as e:
                     import traceback
+
                     traceback.print_exc()
                     GLib.idle_add(self._show_error, str(e))
                 finally:
@@ -634,8 +836,14 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         if is_sending:
             self.message_entry.set_placeholder_text("Generating response...")
+            self.send_btn.add_css_class("generating")
+            self.send_btn.set_icon_name("media-playback-stop-symbolic")
+            self.send_btn.set_tooltip_text("Stop generating")
         else:
             self.message_entry.set_placeholder_text("Type a message...")
+            self.send_btn.remove_css_class("generating")
+            self.send_btn.set_icon_name("mail-send-symbolic")
+            self.send_btn.set_tooltip_text("Send Message")
 
     def _update_assistant_message(self, content: str) -> None:
         """Update or create assistant message widget."""
@@ -652,7 +860,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
     def _show_error(self, error: str) -> None:
         """Show error message to user and log it."""
         logger.error(f"Error: {error}")
-        
+
         toast = Adw.Toast.new(f"Error: {error}")
         toast.set_timeout(5)  # 5 seconds
         self.toast_overlay.add_toast(toast)
