@@ -378,16 +378,16 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         if self._current_conversation_id == conversation_id:
             self.new_conversation()
 
+        # Delete from DB (must be done on main thread or thread where DB was created)
+        try:
+            self.database.delete_conversation(conversation_id)
+        except Exception as e:
+            print(f"Error deleting from DB: {e}")
+
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
 
         def delete_task() -> None:
-            # Delete from DB
-            try:
-                self.database.delete_conversation(conversation_id)
-            except Exception as e:
-                print(f"Error deleting from DB: {e}")
-
             if not url or not key:
                 return
 
