@@ -291,6 +291,10 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             row.set_name(conv.id)
             self.conversation_list.append(row)
 
+            # Restore selection if this is the current conversation
+            if self._current_conversation_id and conv.id == self._current_conversation_id:
+                self.conversation_list.select_row(row)
+
     def _on_conversation_selected(self, list_box: Gtk.ListBox) -> None:
         """Handle conversation selection."""
         selected_row = list_box.get_selected_row()

@@ -19,6 +19,7 @@ class Conversation(BaseModel):
     updated_at: datetime = Field(alias="updatedAt")
     message_count: int = Field(default=0, alias="messageCount")
     pinned: bool = False
+    generating: bool = False
     cost_usd: Optional[float] = Field(default=None, alias="costUsd")
 
     model_config = {"populate_by_name": True}
@@ -76,7 +77,7 @@ class GenerateMessageRequest(BaseModel):
     """Request to generate a message."""
 
     message: Optional[str] = None
-    model_id: str
+    model_id: str = Field(alias="modelId")
     assistant_id: Optional[str] = Field(default=None, alias="assistantId")
     project_id: Optional[str] = Field(default=None, alias="projectId")
     conversation_id: Optional[str] = Field(default=None, alias="conversationId")
