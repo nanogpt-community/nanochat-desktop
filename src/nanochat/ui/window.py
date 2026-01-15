@@ -40,6 +40,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self._current_conversation_id: str | None = None
         self._current_messages: list[Message] = []
         self._is_sending: bool = False
+        # Track when we last fetched each conversation from API (for cache freshness)
+        self._conversation_fetch_time: dict[str, float] = {}
+        self._cache_stale_seconds: int = 300  # 5 minutes
 
         self.set_default_size(1200, 800)
         self.set_title("NanoChat")
@@ -449,7 +452,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             self._load_messages(conv_id)
 
     def _load_messages(self, conversation_id: str) -> None:
-        """Load messages for a conversation from DB and then sync."""
+        """Load messages for a conversation from DB and optionally sync with API."""
+        import time
+
         self._current_conversation_id = conversation_id
 
         # 1. Load from DB first (should be instant)
@@ -461,7 +466,20 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         except Exception as e:
             logger.error(f"Error loading local messages: {e}")
 
-        # 2. Sync with API (in background)
+        # 2. Check if we need to sync with API
+        # Only sync if: no cache OR cache is stale (older than 5 minutes)
+        current_time = time.time()
+        last_fetch = self._conversation_fetch_time.get(conversation_id, 0)
+        cache_is_stale = (current_time - last_fetch) > self._cache_stale_seconds
+        has_no_cache = len(self._current_messages) == 0
+
+        if not has_no_cache and not cache_is_stale:
+            logger.debug(f"Cache is fresh for {conversation_id[:8]}..., skipping API sync")
+            return
+
+        logger.info(f"Syncing {conversation_id[:8]}... with API (cache {'stale' if cache_is_stale else 'empty'})")
+
+        # 3. Sync with API (in background)
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
 
@@ -487,6 +505,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             if isinstance(messages, Exception):
                 logger.error(f"Failed to load messages from API: {messages}")
                 return
+
+            # Update fetch time
+            self._conversation_fetch_time[conversation_id] = time.time()
 
             logger.info(f"Loaded {len(messages)} messages from API for conversation {conversation_id[:8]}...")
 
