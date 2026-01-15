@@ -6,92 +6,107 @@ This directory contains all planning documents for the NanoChat Desktop Linux ap
 
 ## Quick Start
 
-1. **Read First**: [`CLAUDE.md`](CLAUDE.md) - Instructions for LLM assistants
+1. **Read First**: [`CLAUDE.md`](../CLAUDE.md) - Instructions for LLM assistants
 2. **Overview**: [`nanochat-desktop-development-plan.md`](nanochat-desktop-development-plan.md) - High-level architecture
-3. **API Reference**: [`api-docs.md`](api-docs.md) - Backend API documentation
-4. **Start Building**: [`phase-1-mvp.md`](phase-1-mvp.md) - Phase 1 implementation guide
+3. **API Reference**: [`other plan docs/api-docs.md`](other%20plan%20docs/api-docs.md) - Backend API documentation
+4. **Start Building**: Check [`pending-tasks.md`](pending-tasks.md) - Prioritized task list
 
 ---
 
 ## Document Index
 
-### Core Documents
+### Active Task Tracking
 
 | Document | Description |
 |----------|-------------|
-| [`CLAUDE.md`](CLAUDE.md) | LLM assistant instructions, coding standards, workflow |
+| [`pending-tasks.md`](pending-tasks.md) | **MASTER TASK LIST** - All pending work, prioritized by criticality |
+| [`completed-items.md`](completed-items.md) | **COMPLETED WORK** - Archive of all finished features and releases |
+
+### Core Reference Documents
+
+| Document | Description |
+|----------|-------------|
+| [`../CLAUDE.md`](../CLAUDE.md) | LLM assistant instructions, coding standards, workflow |
 | [`nanochat-desktop-development-plan.md`](nanochat-desktop-development-plan.md) | High-level architecture, tech stack, project structure |
-| [`api-docs.md`](api-docs.md) | Complete NanoChat backend API documentation |
+| [`github-workflow.md`](github-workflow.md) | Git workflow, releases, issue tracking |
 
-### Phase Plans
+### Archived Phase Plans
 
-| Phase | Version | Document | Focus |
-|-------|---------|----------|-------|
-| 1 | v0.1.0 | [`phase-1-mvp.md`](phase-1-mvp.md) | Core chat, API client, basic UI |
-| 2 | v0.2.0 | [`phase-2-enhanced-ux.md`](phase-2-enhanced-ux.md) | Search, shortcuts, themes |
-| 3 | v0.3.0 | [`phase-3-assistants-projects.md`](phase-3-assistants-projects.md) | Assistants, projects management |
-| 4 | v0.4.0 | [`phase-4-advanced-features.md`](phase-4-advanced-features.md) | Web search, attachments, analytics |
-| 5 | v1.0.0 | [`phase-5-polish.md`](phase-5-polish.md) | Themes, accessibility, release |
+*The original phase-specific plans have been moved to the [`other plan docs/`](other%20plan%20docs/) folder for reference. These documents contain detailed implementation notes that may still be useful, but all task tracking now happens in `pending-tasks.md`.*
 
-### Additional Documents
+| Phase | Version | Document | Status |
+|-------|---------|----------|--------|
+| 1 | v0.1.0 | [`other plan docs/phase-1-mvp.md`](other%20plan%20docs/phase-1-mvp.md) | ✅ Complete |
+| 1 | v0.1.0 | [`other plan docs/phase-1-review.md`](other%20plan%20docs/phase-1-review.md) | ✅ Review |
+| 2 | v0.2.0 | [`other plan docs/phase-2-enhanced-ux.md`](other%20plan%20docs/phase-2-enhanced-ux.md) | ✅ Complete |
+| 3 | v0.3.0 | [`other plan docs/phase-3-assistants-projects.md`](other%20plan%20docs/phase-3-assistants-projects.md) | Pending |
+| 4 | v0.4.0 | [`other plan docs/phase-4-advanced-features.md`](other%20plan%20docs/phase-4-advanced-features.md) | Pending |
+| 5 | v1.0.0 | [`other plan docs/phase-5-polish.md`](other%20plan%20docs/phase-5-polish.md) | Pending |
+
+### Additional Reference Documents
 
 | Document | Description |
 |----------|-------------|
-| [`future-enhancements.md`](future-enhancements.md) | Post-v1.0 feature roadmap |
-| [`github-workflow.md`](github-workflow.md) | Git workflow, releases, issue tracking |
+| [`other plan docs/api-docs.md`](other%20plan%20docs/api-docs.md) | Complete NanoChat backend API documentation |
+| [`other plan docs/future-enhancements.md`](other%20plan%20docs/future-enhancements.md) | Post-v1.0 feature ideas (integrated into pending-tasks.md) |
 
 ---
 
 ## Project Summary
 
-**Repository**: `nanochat-desktop-v2`  
-**Tech Stack**: Python 3.11+, GTK4/Libadwaita, httpx, Pydantic, SQLite  
+**Repository**: `nanochat-desktop-v2`
+**Tech Stack**: Python 3.11+, GTK4/Libadwaita, httpx, Pydantic, SQLite
 **Packaging**: Flatpak, AppImage
+
+### Current Status
+
+**Version**: v0.2.0 (Released)
+**Next Phase**: v0.3.0 - Assistants and Projects
 
 ### Version Timeline
 
 ```
 v0.1.0  →  v0.2.0  →  v0.3.0  →  v0.4.0  →  v1.0.0
   ↓          ↓          ↓          ↓          ↓
+  ✅         ✅          🔄         ⏳         ⏳
  MVP     Enhanced    Assistants  Advanced   Polish
  Chat       UX       Projects    Features   Release
 ```
 
-### Core Features by Phase
+Legend: ✅ Complete | 🔄 In Progress | ⏳ Pending
 
-**Phase 1 - MVP (v0.1.0)**
-- Backend connection with API key
-- Streaming chat messages
-- Conversation management
-- Model selection
-- Local SQLite caching
+---
 
-**Phase 2 - Enhanced UX (v0.2.0)**
-- Conversation search
-- Keyboard shortcuts
-- Dark/light themes
-- Copy/paste support
-- Stop generation
+## Task Tracking Workflow
 
-**Phase 3 - Organization (v0.3.0)**
-- Assistants management
-- Projects management
-- Filter by project
-- Move conversations
+**IMPORTANT**: The project now uses a consolidated task tracking system. Do NOT create new phase-specific plans.
 
-**Phase 4 - Advanced (v0.4.0)**
-- Web search integration
-- Image attachments
-- Document attachments
-- Starred messages
-- Balance display
+### For Development Sessions:
 
-**Phase 5 - Release (v1.0.0)**
-- Catppuccin theme
-- Tokyo Night theme
-- Accessibility
-- Documentation
-- App store readiness
+1. **Pick a task** from [`pending-tasks.md`](pending-tasks.md)
+   - Tasks are organized by priority: CRITICAL → HIGH → MEDIUM → LOWER
+   - Start with CRITICAL priority tasks
+
+2. **Implement the feature**
+   - Reference archived phase plans in [`other plan docs/`](other%20plan%20docs/) for implementation details
+   - Follow coding standards in [`../CLAUDE.md`](../CLAUDE.md)
+
+3. **Mark as complete**
+   - Move the task from `pending-tasks.md` to `completed-items.md`
+   - Add completion date
+
+4. **Continue** with next task
+
+### Task Statistics
+
+| Priority | Count | Focus |
+|----------|-------|-------|
+| CRITICAL | 6 | Core UX (copy, shortcuts, rename, search, etc.) |
+| HIGH | 15 | Organization (assistants, projects, TTS/STT, export) |
+| MEDIUM | 15 | Power User (web search, attachments, analytics) |
+| LOWER | 22 | Polish (themes, accessibility, documentation) |
+| EXPERIMENTAL | 4 | Future consideration (local LLM, plugins) |
+| **TOTAL** | **60** | |
 
 ---
 
@@ -99,10 +114,11 @@ v0.1.0  →  v0.2.0  →  v0.3.0  →  v0.4.0  →  v1.0.0
 
 When working on this project:
 
-1. **Always read [`CLAUDE.md`](CLAUDE.md) first** - Contains coding standards and guidelines
-2. **Reference phase plans** - Each phase has detailed implementation tasks
-3. **Check [`api-docs.md`](api-docs.md)** - For exact API endpoint signatures
-4. **Follow git workflow** - See [`github-workflow.md`](github-workflow.md)
+1. **Always read [`../CLAUDE.md`](../CLAUDE.md) first** - Contains coding standards and guidelines
+2. **Check [`pending-tasks.md`](pending-tasks.md)** - Pick the next prioritized task
+3. **Reference archived plans** - See [`other plan docs/`](other%20plan%20docs/) for implementation details
+4. **Check API docs** - See [`other plan docs/api-docs.md`](other%20plan%20docs/api-docs.md) for endpoint signatures
+5. **Follow git workflow** - See [`github-workflow.md`](github-workflow.md)
 
 ### Key Reminders
 
@@ -112,6 +128,7 @@ When working on this project:
 - XDG directories for data storage
 - libsecret for API key storage
 - Conventional commits for git
+- **Work from `pending-tasks.md`, not phase plans**
 
 ---
 
@@ -119,24 +136,20 @@ When working on this project:
 
 ### Getting Started
 
-1. Review the plans in order:
-   - High-level plan
-   - Phase 1 MVP
-   - API docs
+1. Review the documentation in order:
+   - [`../CLAUDE.md`](../CLAUDE.md) - Coding standards
+   - [`nanochat-desktop-development-plan.md`](nanochat-desktop-development-plan.md) - Architecture
+   - [`pending-tasks.md`](pending-tasks.md) - Current tasks
 
 2. Set up development environment:
    ```bash
-   # See phase-1-mvp.md for full instructions
+   # See phase-1-mvp.md in "other plan docs/" for full instructions
    python3.11 -m venv venv
    source venv/bin/activate
    pip install -e ".[dev]"
    ```
 
-3. Create repository:
-   ```bash
-   gh repo create nanochat-desktop-v2 --private
-   git checkout -b v0.1.0
-   ```
+3. Pick a task from `pending-tasks.md` and start building!
 
 ### Human Tasks (Per Phase)
 
@@ -152,7 +165,7 @@ Some tasks require human action:
 
 ### Release Process
 
-1. Complete all phase tasks
+1. Complete all phase tasks from `pending-tasks.md`
 2. Update version numbers
 3. Tag release (matches branch name)
 4. Build Flatpak and AppImage
@@ -164,7 +177,8 @@ See [`github-workflow.md`](github-workflow.md) for detailed instructions.
 
 ## Questions?
 
-- **Architecture**: See high-level plan
-- **API**: See api-docs.md
-- **Implementation**: See phase-specific plans
-- **Git/Releases**: See github-workflow.md
+- **Current Tasks**: See `pending-tasks.md`
+- **Implementation Details**: See archived phase plans in `other plan docs/`
+- **API**: See `other plan docs/api-docs.md`
+- **Architecture**: See `nanochat-desktop-development-plan.md`
+- **Git/Releases**: See `github-workflow.md`

@@ -6,18 +6,75 @@
 
 NanoChat Desktop is a Linux desktop application that provides a native GTK4 interface for the NanoChat API. It is being developed as a fresh implementation inspired by the Android client, focusing on Linux-native features and conventions.
 
-**Repository**: `nanochat-desktop-v2`  
+**Repository**: `nanochat-desktop-v2`
 **Tech Stack**: Python 3.11+, GTK4/Libadwaita, httpx, Pydantic, SQLite
 
 ---
 
 ## Key Documents
 
-Before starting any work, review these documents in order:
+### Primary Task Tracking (READ THIS FIRST)
 
-1. [`plans/nanochat-desktop-development-plan.md`](nanochat-desktop-development-plan.md) - High-level architecture and tech stack
-2. [`plans/api-docs.md`](api-docs.md) - Complete API documentation
-3. Phase-specific plans in `plans/phase-*.md`
+**IMPORTANT**: The project now uses consolidated task tracking. Always work from the prioritized task list.
+
+1. [`plans/pending-tasks.md`](plans/pending-tasks.md) - **MASTER TASK LIST** - All pending work, organized by priority (CRITICAL → HIGH → MEDIUM → LOWER)
+2. [`plans/completed-items.md`](plans/completed-items.md) - Archive of completed features and releases
+
+### Reference Documentation
+
+3. [`plans/nanochat-desktop-development-plan.md`](plans/nanochat-desktop-development-plan.md) - High-level architecture and tech stack
+4. [`plans/other plan docs/api-docs.md`](plans/other%20plan%20docs/api-docs.md) - Complete API documentation
+5. [`plans/github-workflow.md`](plans/github-workflow.md) - Git workflow and release process
+
+### Archived Phase Plans
+
+Original phase-specific plans have been moved to [`plans/other plan docs/`](plans/other%20plan%20docs/) for reference. These contain detailed implementation notes but task tracking happens in `pending-tasks.md`.
+
+---
+
+## Task Workflow for Development Sessions
+
+### Step 1: Pick a Task
+
+Go to [`plans/pending-tasks.md`](plans/pending-tasks.md) and select the next task:
+- Start with **CRITICAL** priority tasks (Core UX)
+- Then move to **HIGH** priority (Organization & Core Features)
+- Reference archived phase plans for implementation details
+
+### Step 2: Implement
+
+- Follow the coding standards below
+- Reference the appropriate archived phase plan in [`plans/other plan docs/`](plans/other%20plan%20docs/)
+- Check [`api-docs.md`](plans/other%20plan%20docs/api-docs.md) for API endpoint signatures
+
+### Step 3: Mark Complete
+
+When done:
+1. Cut the task from `pending-tasks.md`
+2. Paste it into `completed-items.md` with completion date
+3. Update task counts
+
+### Step 4: Continue
+
+Move to the next task in priority order.
+
+---
+
+## Current Status
+
+**Version**: v0.2.0 (Released)
+**Next Phase**: v0.3.0 - Assistants and Projects
+
+**Completed** (20 items):
+- Phase 1: MVP Core Chat (v0.1.0)
+- Phase 2: Enhanced UX (v0.2.0) - Theme support, message display, stop button, toasts, caching
+
+**Pending** (60 tasks):
+- CRITICAL: 6 tasks (copy button, shortcuts, rename, search, drag & drop, regeneration)
+- HIGH: 15 tasks (assistants, projects, TTS/STT, export, multi-account)
+- MEDIUM: 15 tasks (web search, attachments, analytics)
+- LOWER: 22 tasks (themes, accessibility, documentation)
+- EXPERIMENTAL: 4 tasks (local LLM, multiple windows, plugins)
 
 ---
 
@@ -88,7 +145,7 @@ from nanochat.data import database
 [optional footer]
 ```
 
-**Types**: feat, fix, docs, style, refactor, test, chore  
+**Types**: feat, fix, docs, style, refactor, test, chore
 **Scopes**: api, ui, data, build, deps
 
 **Examples**:
@@ -236,7 +293,7 @@ curl -X POST "$BACKEND_URL/api/generate-message" \
    class NewFeatureRequest(BaseModel):
        field1: str
        field2: Optional[int] = None
-   
+
    class NewFeatureResponse(BaseModel):
        success: bool
        data: dict
@@ -258,11 +315,11 @@ curl -X POST "$BACKEND_URL/api/generate-message" \
    @Gtk.Template(filename="widget.ui")  # Optional, can be pure Python
    class NewWidget(Adw.Bin):
        __gtype_name__ = "NewWidget"
-       
+
        def __init__(self):
            super().__init__()
            self._setup_ui()
-       
+
        def _setup_ui(self):
            # Build UI programmatically or load template
            pass
@@ -280,35 +337,43 @@ curl -X POST "$BACKEND_URL/api/generate-message" \
 
 ---
 
-## Phase-Specific Instructions
+## Reference Materials by Topic
 
-See the detailed phase plans for specific implementation guidance:
+### For Architecture Decisions
+See: [`plans/nanochat-desktop-development-plan.md`](plans/nanochat-desktop-development-plan.md)
 
-- **Phase 1** (`plans/phase-1-mvp.md`): Core chat, API client, basic UI
-- **Phase 2** (`plans/phase-2-enhanced-ux.md`): Search, keyboard shortcuts, themes
-- **Phase 3** (`plans/phase-3-assistants-projects.md`): Assistants and projects management
-- **Phase 4** (`plans/phase-4-advanced-features.md`): Web search, attachments, analytics
-- **Phase 5** (`plans/phase-5-polish.md`): Themes, accessibility, store submission
+### For API Endpoints
+See: [`plans/other plan docs/api-docs.md`](plans/other%20plan%20docs/api-docs.md)
+
+### For Implementation Details (Archived)
+- **Phase 1**: [`plans/other plan docs/phase-1-mvp.md`](plans/other%20plan%20docs/phase-1-mvp.md) - Core chat, API client, basic UI
+- **Phase 2**: [`plans/other plan docs/phase-2-enhanced-ux.md`](plans/other%20plan%20docs/phase-2-enhanced-ux.md) - Search, shortcuts, themes
+- **Phase 3**: [`plans/other plan docs/phase-3-assistants-projects.md`](plans/other%20plan%20docs/phase-3-assistants-projects.md) - Assistants, projects
+- **Phase 4**: [`plans/other plan docs/phase-4-advanced-features.md`](plans/other%20plan%20docs/phase-4-advanced-features.md) - Web search, attachments
+- **Phase 5**: [`plans/other plan docs/phase-5-polish.md`](plans/other%20plan%20docs/phase-5-polish.md) - Themes, accessibility
 
 ---
 
 ## Do's and Don'ts
 
 ### Do
-- ✅ Reference `plans/api-docs.md` for exact endpoint signatures
+- ✅ Work from [`plans/pending-tasks.md`](plans/pending-tasks.md) - Pick tasks in priority order
+- ✅ Reference [`plans/other plan docs/api-docs.md`](plans/other%20plan%20docs/api-docs.md) for exact endpoint signatures
 - ✅ Use async/await for all network operations
 - ✅ Handle all error cases with user-friendly messages
 - ✅ Test on both X11 and Wayland
 - ✅ Follow XDG Base Directory specification for file paths
 - ✅ Use libsecret for storing sensitive data (API keys)
+- ✅ Move completed tasks to [`plans/completed-items.md`](plans/completed-items.md)
 
 ### Don't
+- ❌ Create new phase-specific plans - Use `pending-tasks.md`
 - ❌ Block the UI thread with synchronous operations
 - ❌ Store API keys in plain text files
 - ❌ Hardcode the backend URL
 - ❌ Use GTK3 widgets (this is a GTK4 project)
 - ❌ Skip error handling for API calls
-- ❌ Forget to update the todo list after completing tasks
+- ❌ Forget to update task tracking documents
 
 ---
 
@@ -337,6 +402,8 @@ black --check src/
 
 ## Contact and Support
 
-- **API Issues**: Check `plans/api-docs.md` first
-- **Architecture Questions**: See `plans/nanochat-desktop-development-plan.md`
-- **Phase-Specific Questions**: See relevant `plans/phase-*.md` file
+- **Current Tasks**: [`plans/pending-tasks.md`](plans/pending-tasks.md)
+- **API Documentation**: [`plans/other plan docs/api-docs.md`](plans/other%20plan%20docs/api-docs.md)
+- **Architecture**: [`plans/nanochat-desktop-development-plan.md`](plans/nanochat-desktop-development-plan.md)
+- **Git Workflow**: [`plans/github-workflow.md`](plans/github-workflow.md)
+- **Implementation Details**: See relevant phase plan in [`plans/other plan docs/`](plans/other%20plan%20docs/)
