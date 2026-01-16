@@ -753,11 +753,16 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                     # Generation complete - refresh title only if it's a new chat
                     conv_id = state.get("conversation_id")
                     if conv_id:
-                        def delayed_title_refresh() -> bool:
-                            self._refresh_conversation_title(conv_id)
-                            return False  # Don't repeat
-                        # Use timeout_add for a 1 second delay to let server generate title
-                        GLib.timeout_add(1000, delayed_title_refresh)
+                        def schedule_title_refresh() -> bool:
+                            """Schedule title refresh on main thread."""
+                            def do_refresh() -> bool:
+                                self._refresh_conversation_title(conv_id)
+                                return False  # Don't repeat
+                            # Schedule refresh after 1 second delay
+                            GLib.timeout_add(1000, do_refresh)
+                            return False  # Don't repeat idle_add
+                        # Use idle_add first to get to main thread, then timeout_add
+                        GLib.idle_add(schedule_title_refresh)
 
                 elif event_type == "error":
                     # Handle error event
