@@ -87,3 +87,31 @@ class GenerateMessageRequest(BaseModel):
     temporary: Optional[bool] = None
 
     model_config = {"populate_by_name": True}
+
+
+class SSEMessageStart(BaseModel):
+    """SSE message_start event data."""
+
+    conversation_id: str
+    message_id: str
+
+
+class SSEDelta(BaseModel):
+    """SSE delta event data."""
+
+    content: str
+    reasoning: Optional[str] = None
+
+
+class SSEMessageComplete(BaseModel):
+    """SSE message_complete event data."""
+
+    token_count: Optional[int] = None
+    cost_usd: Optional[float] = None
+    response_time_ms: Optional[int] = None
+
+
+class SSEError(BaseModel):
+    """SSE error event data."""
+
+    error: str
