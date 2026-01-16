@@ -723,7 +723,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self.message_entry.set_text("")
         self._set_sending_state(True)
 
-        # Start polling for response
+        # Start SSE streaming
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
 
@@ -731,7 +731,45 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             from nanochat.api.client import NanoChatClient
             from nanochat.api.models import GenerateMessageRequest
 
-            async def do_poll() -> None:
+            # Mutable state for accumulating content
+            state = {"accumulated_content": "", "conversation_id": None}
+
+            def on_event(event_type: str, event_data: dict) -> None:
+                """Handle SSE events from the stream."""
+                if event_type == "message_start":
+                    # Set conversation ID from message_start event
+                    conv_id = event_data.get("conversation_id")
+                    if conv_id:
+                        state["conversation_id"] = conv_id
+                        GLib.idle_add(self._set_conversation_id, conv_id)
+
+                elif event_type == "delta":
+                    # Accumulate content and update UI
+                    delta_content = event_data.get("content", "")
+                    state["accumulated_content"] += delta_content
+                    GLib.idle_add(self._update_assistant_message, state["accumulated_content"])
+
+                elif event_type == "message_complete":
+                    # Generation complete - refresh title only if it's a new chat
+                    conv_id = state.get("conversation_id")
+                    if conv_id:
+                        def schedule_title_refresh() -> bool:
+                            """Schedule title refresh on main thread."""
+                            def do_refresh() -> bool:
+                                self._refresh_conversation_title(conv_id)
+                                return False  # Don't repeat
+                            # Schedule refresh after 1 second delay
+                            GLib.timeout_add(1000, do_refresh)
+                            return False  # Don't repeat idle_add
+                        # Use idle_add first to get to main thread, then timeout_add
+                        GLib.idle_add(schedule_title_refresh)
+
+                elif event_type == "error":
+                    # Handle error event
+                    error_msg = event_data.get("error", "Unknown error")
+                    GLib.idle_add(self._show_error, error_msg)
+
+            async def do_stream() -> None:
                 request = GenerateMessageRequest(
                     message=text,
                     model_id=model_id,
@@ -739,82 +777,8 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 )
 
                 try:
-                    # Send the message (returns immediately with conversation_id)
                     async with NanoChatClient(url, key) as client:
-                        response = await client._request(
-                            "POST",
-                            "/api/generate-message",
-                            json=request.model_dump(exclude_none=True, by_alias=True),
-                        )
-
-                        if "conversation_id" in response:
-                            new_conv_id = response["conversation_id"]
-                            GLib.idle_add(self._set_conversation_id, new_conv_id)
-
-                            # Poll for messages and conversation status
-                            last_assistant_content = ""
-                            last_message_count = 0
-                            max_polls = 600  # 5 minutes at 0.5s intervals
-                            poll_count = 0
-
-                            while poll_count < max_polls:
-                                poll_count += 1
-                                await asyncio.sleep(0.5)
-
-                                # Check conversation status (generating field)
-                                try:
-                                    conversation = await client.get_conversation(new_conv_id)
-                                except Exception:
-                                    # If we can't get conversation, fall back to checking messages only
-                                    conversation = None
-
-                                # Get messages
-                                messages = await client.get_messages(new_conv_id)
-
-                                # Check for new/updated messages
-                                if len(messages) > 0:
-                                    # Look for assistant messages
-                                    for msg in messages:
-                                        if msg.role == "assistant" and msg.content:
-                                            # Only update if content has changed
-                                            if msg.content != last_assistant_content:
-                                                last_assistant_content = msg.content
-                                                GLib.idle_add(
-                                                    self._update_assistant_message, msg.content
-                                                )
-
-                                    # Check if generation is complete
-                                    # - conversation.generating is False, OR
-                                    # - we have an even number of messages (user+assistant pairs) with complete content
-                                    generation_complete = False
-
-                                    if conversation is not None:
-                                        if not conversation.generating:
-                                            generation_complete = True
-                                    else:
-                                        # Fallback: check if last message is a complete assistant response
-                                        if (
-                                            len(messages) >= 2
-                                            and messages[-1].role == "assistant"
-                                            and messages[-1].content
-                                        ):
-                                            generation_complete = True
-
-                                    if generation_complete:
-                                        # Final update to ensure we have the latest content
-                                        if (
-                                            messages[-1].role == "assistant"
-                                            and messages[-1].content
-                                        ):
-                                            GLib.idle_add(
-                                                self._update_assistant_message, messages[-1].content
-                                            )
-                                        GLib.idle_add(self._load_conversations)
-                                        break
-
-                            # If max polls reached, still reload conversations
-                            if poll_count >= max_polls:
-                                GLib.idle_add(self._load_conversations)
+                        await client.stream_generate_message(request, on_event)
 
                 except Exception as e:
                     import traceback
@@ -827,7 +791,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                loop.run_until_complete(do_poll())
+                loop.run_until_complete(do_stream())
                 loop.close()
             except Exception as e:
                 GLib.idle_add(self._show_error, str(e))
@@ -876,6 +840,89 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
     def _set_conversation_id(self, conversation_id: str) -> None:
         """Set the current conversation ID."""
         self._current_conversation_id = conversation_id
+
+    def _refresh_conversation_title(self, conversation_id: str) -> None:
+        """Refresh the title of a specific conversation if it's 'New Chat' or new.
+
+        Only fetches from API and updates the sidebar if the current title
+        is 'New Chat' or if the conversation isn't in our list yet.
+        """
+        # Find the current title in our conversations list
+        current_title = None
+        for conv in self._conversations:
+            if conv.id == conversation_id:
+                current_title = conv.title
+                break
+
+        # Only refresh if:
+        # - conversation not in list yet (new conversation)
+        # - title is "New Chat"
+        if current_title is not None and current_title != "New Chat":
+            return
+
+        url = self.settings_manager.settings.server.backend_url
+        key = self.secrets_manager.get_api_key()
+
+        if not url or not key:
+            return
+
+        def fetch_and_update() -> None:
+            from nanochat.api.client import NanoChatClient
+
+            async def get_conv() -> object:
+                async with NanoChatClient(url, key) as client:
+                    return await client.get_conversation(conversation_id)
+
+            try:
+                loop = asyncio.new_event_loop()
+                conv = loop.run_until_complete(get_conv())
+                loop.close()
+
+                # Update on main thread
+                GLib.idle_add(self._update_or_add_conversation_row, conv)
+
+            except Exception as e:
+                logger.error(f"Failed to refresh conversation title: {e}")
+
+        thread = threading.Thread(target=fetch_and_update, daemon=True)
+        thread.start()
+
+    def _update_or_add_conversation_row(self, conv: Conversation) -> None:
+        """Update or add a conversation row in the sidebar."""
+        conversation_id = conv.id
+        new_title = conv.title
+
+        # Check if conversation exists in list
+        found = False
+        for i, existing in enumerate(self._conversations):
+            if existing.id == conversation_id:
+                # Replace with updated conversation
+                self._conversations[i] = conv
+                found = True
+                break
+
+        # Save to database (needed for foreign key constraints when saving messages)
+        try:
+            self.database.save_conversations([conv])
+        except Exception as e:
+            logger.error(f"Error saving conversation to DB: {e}")
+
+        if not found:
+            # Add to beginning of list (most recent)
+            self._conversations.insert(0, conv)
+            # Create and add new row at the top
+            row = self._create_conversation_row(conv)
+            self.conversation_list.prepend(row)
+            # Select the new row
+            self.conversation_list.select_row(row)
+        else:
+            # Find and update the existing row in the UI
+            child = self.conversation_list.get_first_child()
+            while child is not None:
+                if isinstance(child, Adw.ActionRow) and child.get_name() == conversation_id:
+                    child.set_title(new_title)
+                    break
+                child = child.get_next_sibling()
 
     def new_conversation(self) -> None:
         """Start a new conversation."""

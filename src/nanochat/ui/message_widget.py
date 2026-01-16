@@ -1,6 +1,7 @@
 """Widget for displaying a single chat message."""
 
 import re
+from collections.abc import Callable
 from typing import Optional
 
 import gi
@@ -9,6 +10,19 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
 from gi.repository import Gtk, Adw, Pango, Gdk, GLib
+
+# Pre-compiled regex patterns for markdown parsing (performance optimization)
+_CODE_BLOCK_RE = re.compile(r"```(\w*)\n(.*?)```", re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
+_ITALIC_RE = re.compile(r"\*([^*]+)\*")
+
+# Security: Only allow safe URL schemes for links
+_ALLOWED_URL_SCHEMES = ("http://", "https://", "mailto:")
+
+# Maximum content length to prevent DoS via extremely long messages
+_MAX_CONTENT_LENGTH = 5000
 
 
 class MessageWidget(Adw.Bin):  # type: ignore[misc]
@@ -54,7 +68,11 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         content_frame.add_css_class("message-content")
 
         # Render content with basic markdown
-        rendered_content = self._render_markdown(self.content)
+        # Apply length limit only to user input, not server responses
+        content_to_render = self.content
+        if self.role == "user" and len(content_to_render) > _MAX_CONTENT_LENGTH:
+            content_to_render = content_to_render[:_MAX_CONTENT_LENGTH] + "\n\n[Content truncated...]"
+        rendered_content = self._render_markdown(content_to_render)
 
         # Content label with better typography
         self._content_label = Gtk.Label(label=rendered_content)
@@ -82,7 +100,9 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         - *italic* → <i>
         - `inline code` → <tt>
         - ```code blocks``` → formatted blocks
-        - [links](url) → clickable links
+        - [links](url) → clickable links (http/https/mailto only)
+
+        Security: URLs are validated to only allow safe schemes.
         """
         if not text:
             return ""
@@ -90,10 +110,13 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         # Process in order: code blocks, inline code, links, bold, italic
         # Each replacement returns a list of (text, is_markup) tuples
 
-        parts = [(text, False)]
+        parts: list[tuple[str, bool]] = [(text, False)]
 
         # Helper to process parts list
-        def process_parts(regex: re.Pattern[str], replacer: object) -> None:
+        def process_parts(
+            regex: re.Pattern[str],
+            replacer: Callable[[re.Match[str]], str],
+        ) -> list[tuple[str, bool]]:
             new_parts: list[tuple[str, bool]] = []
             for part_text, is_markup in parts:
                 if is_markup:
@@ -110,8 +133,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
                     # Add remaining text
                     if last_end < len(part_text):
                         new_parts.append((part_text[last_end:], False))
-            parts.clear()
-            parts.extend(new_parts)
+            return new_parts
 
         # Code blocks ```code```
         def replace_code_block(match: re.Match[str]) -> str:
@@ -119,7 +141,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
             escaped = GLib.markup_escape_text(code)
             return f'<span font_family="monospace" bgcolor="alpha(@shade_color,0.2)" padding="8" rise="8">{escaped}</span>'
 
-        process_parts(re.compile(r"```(\w*)\n(.*?)```", re.DOTALL), replace_code_block)
+        parts = process_parts(_CODE_BLOCK_RE, replace_code_block)
 
         # Inline code `code`
         def replace_inline_code(match: re.Match[str]) -> str:
@@ -127,17 +149,23 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
             escaped = GLib.markup_escape_text(code)
             return f'<tt font_family="monospace" bgcolor="alpha(@shade_color,0.15)">{escaped}</tt>'
 
-        process_parts(re.compile(r"`([^`]+)`"), replace_inline_code)
+        parts = process_parts(_INLINE_CODE_RE, replace_inline_code)
 
-        # Links [text](url)
+        # Links [text](url) - with URL scheme validation
         def replace_link(match: re.Match[str]) -> str:
             text_content = match.group(1)
             url = match.group(2)
+
+            # Security: Only allow safe URL schemes
+            if not url.lower().startswith(_ALLOWED_URL_SCHEMES):
+                # Render as plain text, not a clickable link
+                return GLib.markup_escape_text(match.group(0))
+
             escaped_text = GLib.markup_escape_text(text_content)
             escaped_url = GLib.markup_escape_text(url)
             return f'<a href="{escaped_url}">{escaped_text}</a>'
 
-        process_parts(re.compile(r"\[([^\]]+)\]\(([^)]+)\)"), replace_link)
+        parts = process_parts(_LINK_RE, replace_link)
 
         # Bold **text**
         def replace_bold(match: re.Match[str]) -> str:
@@ -145,7 +173,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
             escaped = GLib.markup_escape_text(content)
             return f"<b>{escaped}</b>"
 
-        process_parts(re.compile(r"\*\*([^*]+)\*\*"), replace_bold)
+        parts = process_parts(_BOLD_RE, replace_bold)
 
         # Italic *text*
         def replace_italic(match: re.Match[str]) -> str:
@@ -153,7 +181,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
             escaped = GLib.markup_escape_text(content)
             return f"<i>{escaped}</i>"
 
-        process_parts(re.compile(r"\*([^*]+)\*"), replace_italic)
+        parts = process_parts(_ITALIC_RE, replace_italic)
 
         # Combine parts
         result = []
@@ -169,4 +197,8 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         """Update message content (for streaming)."""
         self.content = content
         if self._content_label:
-            self._content_label.set_label(self._render_markdown(content))
+            # Apply length limit only to user input, not server responses
+            content_to_render = content
+            if self.role == "user" and len(content_to_render) > _MAX_CONTENT_LENGTH:
+                content_to_render = content_to_render[:_MAX_CONTENT_LENGTH] + "\n\n[Content truncated...]"
+            self._content_label.set_label(self._render_markdown(content_to_render))

@@ -2,9 +2,18 @@
 
 import httpx
 import json
-from typing import Optional
+from typing import Callable, Optional
 
-from .models import Conversation, Message, Model, GenerateMessageRequest
+from .models import (
+    Conversation,
+    Message,
+    Model,
+    GenerateMessageRequest,
+    SSEMessageStart,
+    SSEDelta,
+    SSEMessageComplete,
+    SSEError,
+)
 from .exceptions import (
     NanoChatAPIError,
     AuthenticationError,
@@ -102,3 +111,88 @@ class NanoChatClient:
             return True
         except NanoChatAPIError:
             return False
+
+    # Streaming message generation
+    async def stream_generate_message(
+        self,
+        request: GenerateMessageRequest,
+        on_event: Callable[[str, dict], None],
+    ) -> None:
+        """Generate a message with SSE streaming using callbacks.
+
+        Calls on_event for each SSE event with (event_type, event_data) where event_type is:
+        - "message_start": SSEMessageStart data
+        - "delta": SSEDelta data
+        - "message_complete": SSEMessageComplete data
+        - "error": SSEError data
+
+        Args:
+            request: Generation request parameters
+            on_event: Callback function receiving (event_type, event_data)
+
+        Raises:
+            NanoChatAPIError: If the API returns an error
+            AuthenticationError: If authentication fails
+            APIConnectionError: If network connection fails
+        """
+        received_complete = False
+
+        try:
+            async with self._client.stream(  # type: ignore[union-attr]
+                "POST",
+                "/api/generate-message/stream",
+                json=request.model_dump(exclude_none=True, by_alias=True),
+            ) as response:
+                response.raise_for_status()
+
+                # Parse SSE stream - track event type across lines
+                current_event = None
+
+                try:
+                    async for line in response.aiter_lines():
+                        # If we've already received a terminal event, just consume and ignore
+                        if received_complete:
+                            continue
+
+                        line = line.strip()
+
+                        # Skip empty lines
+                        if not line:
+                            continue
+
+                        # Parse event type (precedes data)
+                        if line.startswith("event: "):
+                            current_event = line[7:].strip()
+                            continue
+
+                        # Parse data (follows event)
+                        if line.startswith("data: "):
+                            data_str = line[6:].strip()
+                            try:
+                                data = json.loads(data_str)
+                                if current_event:
+                                    on_event(current_event, data)
+                                    # If terminal event, mark as complete
+                                    if current_event in ("message_complete", "error"):
+                                        received_complete = True
+                                    current_event = None  # Reset for next event
+                            except json.JSONDecodeError:
+                                # Invalid JSON, skip
+                                continue
+                except httpx.RemoteProtocolError:
+                    # Server closed the connection - this is expected after message_complete
+                    if not received_complete:
+                        raise  # Re-raise if we didn't receive a complete event
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                raise AuthenticationError("Invalid API key") from e
+            if e.response.status_code == 429:
+                raise RateLimitError("Rate limit exceeded") from e
+            raise NanoChatAPIError(f"API error: {e.response.status_code}") from e
+        except httpx.RemoteProtocolError:
+            # Server closed the connection - expected after message_complete
+            if not received_complete:
+                raise APIConnectionError("Server closed connection unexpectedly")
+        except httpx.NetworkError as e:
+            raise APIConnectionError("Cannot connect to server") from e

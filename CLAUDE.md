@@ -386,12 +386,16 @@ python -m nanochat
 # Run with debug logging
 NANOCHAT_DEBUG=1 python -m nanochat
 
-# Build Flatpak locally
-flatpak-builder --user --install --force-clean build flatpak/com.nanogpt.NanoChat.yml
+# Build Flatpak (DO NOT attempt to install - Claude runs in a sandbox)
+# Step 1: Build to local repo
+flatpak-builder --force-clean --repo=repo build flatpak/com.nanogpt.NanoChat.yml
 
-# Export Flatpak as single file
-flatpak build-export export build
-flatpak build-bundle export com.nanogpt.NanoChat-<version>.flatpak com.nanogpt.NanoChat
+# Step 2: Create single-file bundle for distribution
+flatpak build-bundle repo com.nanogpt.NanoChat-<version>.flatpak com.nanogpt.NanoChat
+
+# NOTE: Installation must be done manually by the user outside the sandbox:
+# flatpak install --user com.nanogpt.NanoChat-<version>.flatpak
+# flatpak run com.nanogpt.NanoChat
 
 # Check code style
 ruff check src/
