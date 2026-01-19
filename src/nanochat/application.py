@@ -69,6 +69,18 @@ class NanoChatApplication(Adw.Application):
         self.add_action(new_chat_action)
         self.set_accels_for_action("app.new-chat", ["<Control>n"])
 
+        # Copy last response action
+        copy_response_action = Gio.SimpleAction.new("copy-last-response", None)
+        copy_response_action.connect("activate", self._on_copy_last_response)
+        self.add_action(copy_response_action)
+        self.set_accels_for_action("app.copy-last-response", ["<Control><Shift>c"])
+
+        # Show shortcuts help action
+        shortcuts_action = Gio.SimpleAction.new("shortcuts", None)
+        shortcuts_action.connect("activate", self._on_show_shortcuts)
+        self.add_action(shortcuts_action)
+        self.set_accels_for_action("app.shortcuts", ["F1"])
+
     def _is_configured(self) -> bool:
         """Check if app is configured."""
         has_url = bool(self.settings_manager.settings.server.backend_url)
@@ -101,6 +113,19 @@ class NanoChatApplication(Adw.Application):
         """Handle new chat action."""
         if self._window:
             self._window.new_conversation()  # type: ignore[attr-defined]
+
+    def _on_copy_last_response(self, action: object, param: object) -> None:
+        """Handle copy last response action."""
+        if self._window and hasattr(self._window, "copy_last_assistant_message"):
+            self._window.copy_last_assistant_message()  # type: ignore[attr-defined]
+
+    def _on_show_shortcuts(self, action: object, param: object) -> None:
+        """Handle show shortcuts action."""
+        if self._window:
+            from nanochat.ui.shortcuts_dialog import create_shortcuts_window
+
+            shortcuts_window = create_shortcuts_window(self._window)  # type: ignore[arg-type]
+            shortcuts_window.present()
 
     def _load_css(self) -> None:
         """Load custom CSS stylesheet."""
@@ -267,6 +292,18 @@ message-content code,
 .sidebar-header {
     padding: 8px;
     border-bottom: 1px solid alpha(@shade_color, 0.1);
+}
+
+/* ========== Search Entry ========== */
+
+.sidebar searchentry {
+    margin: 8px;
+    border-radius: 8px;
+}
+
+.sidebar searchentry:focus {
+    border-color: @accent_color;
+    box-shadow: 0 0 0 2px alpha(@accent_color, 0.3);
 }
 
 /* ========== Empty State ========== */

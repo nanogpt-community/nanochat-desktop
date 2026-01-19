@@ -9,7 +9,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gdk, GLib, Gtk
 
 from nanochat.api.models import Conversation, Message
 from nanochat.data.database import Database
@@ -49,11 +49,16 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self._syncing_conversations: set[str] = set()
         # Flag to prevent message reload during conversation list updates
         self._updating_conversation_list: bool = False
+        # Search state
+        self._search_query: str = ""
+        self._debounce_timer_id: int | None = None
+        self._search_debounce_ms: int = 300  # 300ms debounce
 
         self.set_default_size(1200, 800)
         self.set_title("NanoChat")
 
         self._setup_ui()
+        self._setup_keyboard_shortcuts()
 
         # Connect to map signal for loading after UI is ready
         self.connect("map", self._on_map)
@@ -93,7 +98,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         # New chat button
         new_btn = Gtk.Button(icon_name="list-add-symbolic")
-        new_btn.set_tooltip_text("New Chat")
+        new_btn.set_tooltip_text("New Chat (Ctrl+N)")
         new_btn.connect("clicked", lambda _: self.new_conversation())
         header.pack_start(new_btn)
 
@@ -105,6 +110,24 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         toolbar_view.add_top_bar(header)
 
+        # Search entry container
+        search_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        search_box.set_margin_start(8)
+        search_box.set_margin_end(8)
+        search_box.set_margin_top(8)
+        search_box.set_margin_bottom(8)
+
+        self.search_entry = Gtk.SearchEntry()
+        self.search_entry.set_placeholder_text("Search conversations...")
+        self.search_entry.set_tooltip_text("Search (Ctrl+K)")
+        self.search_entry.connect("search-changed", self._on_search_changed)
+        self.search_entry.connect("stop-search", self._on_search_stopped)
+        search_box.append(self.search_entry)
+
+        # Container for search + list
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        content_box.append(search_box)
+
         # Conversation list
         self.conversation_list = Gtk.ListBox()
         self.conversation_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
@@ -114,7 +137,8 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         scrolled.set_child(self.conversation_list)
         scrolled.set_vexpand(True)
 
-        toolbar_view.set_content(scrolled)
+        content_box.append(scrolled)
+        toolbar_view.set_content(content_box)
 
         return page
 
@@ -196,6 +220,183 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         box.append(self.send_btn)
 
         return box
+
+    def _setup_keyboard_shortcuts(self) -> None:
+        """Set up keyboard event handling for window-level shortcuts."""
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self._on_key_pressed)
+        self.add_controller(key_controller)
+
+        # Setup sidebar navigation
+        self._setup_sidebar_navigation()
+
+    def _on_key_pressed(
+        self,
+        controller: Gtk.EventControllerKey,
+        keyval: int,
+        keycode: int,
+        state: Gdk.ModifierType,
+    ) -> bool:
+        """Handle key press events."""
+        ctrl = state & Gdk.ModifierType.CONTROL_MASK
+
+        # Ctrl+K - Focus search (when implemented)
+        if ctrl and keyval == Gdk.KEY_k:
+            self._focus_search()
+            return True
+
+        # Ctrl+Enter - Send message
+        if ctrl and keyval == Gdk.KEY_Return:
+            self._on_send(self.send_btn)
+            return True
+
+        # Escape - Various cancel actions
+        if keyval == Gdk.KEY_Escape:
+            return self._handle_escape()
+
+        # F2 - Rename selected conversation
+        if keyval == Gdk.KEY_F2:
+            self._rename_selected_conversation()
+            return True
+
+        return False  # Event not handled
+
+    def _setup_sidebar_navigation(self) -> None:
+        """Set up keyboard navigation for sidebar."""
+        # Enable keyboard navigation on the ListBox
+        self.conversation_list.set_activate_on_single_click(False)
+
+        # Add key controller for arrow navigation
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self._on_sidebar_key_pressed)
+        self.conversation_list.add_controller(key_controller)
+
+    def _on_sidebar_key_pressed(
+        self,
+        controller: Gtk.EventControllerKey,
+        keyval: int,
+        keycode: int,
+        state: Gdk.ModifierType,
+    ) -> bool:
+        """Handle sidebar navigation keys."""
+        if keyval == Gdk.KEY_Up:
+            self._select_previous_conversation()
+            return True
+        elif keyval == Gdk.KEY_Down:
+            self._select_next_conversation()
+            return True
+        elif keyval == Gdk.KEY_Return:
+            # Load selected conversation
+            selected = self.conversation_list.get_selected_row()
+            if selected and isinstance(selected, Adw.ActionRow):
+                self._load_messages(selected.get_name())
+            return True
+        return False
+
+    def _select_previous_conversation(self) -> None:
+        """Select the previous conversation in the list."""
+        selected = self.conversation_list.get_selected_row()
+        if selected:
+            prev_row = selected.get_prev_sibling()
+            while prev_row and not isinstance(prev_row, Adw.ActionRow):
+                prev_row = prev_row.get_prev_sibling()
+            if prev_row:
+                self.conversation_list.select_row(prev_row)
+                self._load_messages(prev_row.get_name())
+        else:
+            # Select first if none selected
+            child = self.conversation_list.get_first_child()
+            while child and not isinstance(child, Adw.ActionRow):
+                child = child.get_next_sibling()
+            if child:
+                self.conversation_list.select_row(child)
+
+    def _select_next_conversation(self) -> None:
+        """Select the next conversation in the list."""
+        selected = self.conversation_list.get_selected_row()
+        if selected:
+            next_row = selected.get_next_sibling()
+            while next_row and not isinstance(next_row, Adw.ActionRow):
+                next_row = next_row.get_next_sibling()
+            if next_row:
+                self.conversation_list.select_row(next_row)
+                self._load_messages(next_row.get_name())
+
+    def _handle_escape(self) -> bool:
+        """Handle Escape key for various cancel actions."""
+        # If search is focused and has text, clear it
+        if hasattr(self, "search_entry") and self.search_entry.has_focus():
+            if self.search_entry.get_text():
+                self.search_entry.set_text("")
+                return True
+        return False
+
+    def _on_search_changed(self, entry: Gtk.SearchEntry) -> None:
+        """Handle search text changes with debounce."""
+        # Cancel previous debounce timer
+        if self._debounce_timer_id:
+            GLib.source_remove(self._debounce_timer_id)
+
+        # Schedule new search after debounce delay
+        self._debounce_timer_id = GLib.timeout_add(
+            self._search_debounce_ms,
+            self._perform_search,
+            entry.get_text().strip().lower()
+        )
+
+    def _perform_search(self, query: str) -> bool:
+        """Perform the actual search and update the list."""
+        self._search_query = query
+        self._debounce_timer_id = None
+
+        if not query:
+            # Empty search - show all conversations
+            self._update_conversation_list(self._conversations)
+        else:
+            # Filter conversations by title
+            filtered = [
+                conv for conv in self._conversations
+                if query in conv.title.lower()
+            ]
+            self._update_conversation_list(filtered, preserve_full_list=True)
+
+        return False  # Don't repeat timer
+
+    def _on_search_stopped(self, entry: Gtk.SearchEntry) -> None:
+        """Handle search cancelled (Escape pressed in search entry)."""
+        entry.set_text("")
+        self._search_query = ""
+        self._update_conversation_list(self._conversations)
+
+    def _focus_search(self) -> None:
+        """Focus the search entry (for Ctrl+K shortcut)."""
+        if hasattr(self, "search_entry"):
+            self.search_entry.grab_focus()
+
+    def _rename_selected_conversation(self) -> None:
+        """Rename the selected conversation (stub for future implementation)."""
+        # This is a stub for now - the full implementation will come later
+        self.toast_overlay.add_toast(Adw.Toast(title="Rename feature coming soon!"))
+
+    def copy_last_assistant_message(self) -> None:
+        """Copy the last assistant message to clipboard."""
+        # Find the last assistant message from current messages
+        last_assistant_content = None
+        for msg in reversed(self._current_messages):
+            if msg.role == "assistant":
+                last_assistant_content = msg.content
+                break
+
+        if not last_assistant_content:
+            self.toast_overlay.add_toast(Adw.Toast(title="No assistant message to copy"))
+            return
+
+        # Copy to clipboard
+        clipboard = self.get_clipboard()
+        clipboard.set(last_assistant_content)
+
+        # Show toast confirmation
+        self.toast_overlay.add_toast(Adw.Toast(title="Copied last response"))
 
     def _on_map(self, widget: Gtk.Widget) -> None:
         """Handle window map event - load data after UI is ready."""
@@ -344,9 +545,20 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         thread = threading.Thread(target=thread_func, daemon=True)
         thread.start()
 
-    def _update_conversation_list(self, conversations: list[Conversation]) -> None:
-        """Update the conversation list UI."""
-        self._conversations = conversations
+    def _update_conversation_list(
+        self,
+        conversations: list[Conversation],
+        preserve_full_list: bool = False,
+    ) -> None:
+        """Update the conversation list UI.
+
+        Args:
+            conversations: Conversations to display (may be filtered)
+            preserve_full_list: If True, don't update self._conversations
+                               (used when filtering)
+        """
+        if not preserve_full_list:
+            self._conversations = conversations
         self._updating_conversation_list = True
 
         # Block the "row-activated" signal during updates to prevent auto-selection issues
@@ -359,10 +571,32 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 self.conversation_list.remove(child)
                 child = next_child
 
-            # Add conversations
-            for conv in conversations:
-                row = self._create_conversation_row(conv)
-                self.conversation_list.append(row)
+            # Show "no results" placeholder if search has no matches
+            if not conversations and self._search_query:
+                placeholder = Gtk.Box(
+                    orientation=Gtk.Orientation.VERTICAL,
+                    spacing=8,
+                )
+                placeholder.set_valign(Gtk.Align.CENTER)
+                placeholder.set_halign(Gtk.Align.CENTER)
+                placeholder.set_margin_top(32)
+                placeholder.add_css_class("dim-label")
+
+                icon = Gtk.Image.new_from_icon_name("edit-find-symbolic")
+                icon.set_pixel_size(48)
+                icon.set_opacity(0.5)
+                placeholder.append(icon)
+
+                label = Gtk.Label(label=f'No results for "{self._search_query}"')
+                label.add_css_class("title-4")
+                placeholder.append(label)
+
+                self.conversation_list.append(placeholder)
+            else:
+                # Add conversations
+                for conv in conversations:
+                    row = self._create_conversation_row(conv)
+                    self.conversation_list.append(row)
 
         finally:
             self._updating_conversation_list = False
