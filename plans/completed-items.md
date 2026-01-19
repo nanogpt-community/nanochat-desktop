@@ -196,6 +196,23 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
   - [x] Clearing search restores full list
   - [x] Keyboard navigation works in filtered results
 
+### ✅ Flatpak Runtime Update
+- **Completed**: 2025-01-18 (commit ca2b579)
+- **Source**: GitHub Issue #2
+- **Description**: Update Flatpak runtime from GNOME 45 to GNOME 49
+- **Files**: `flatpak/com.nanogpt.NanoChat.yml`, `pyproject.toml`
+- **Changes**:
+  - Updated runtime-version from 45 to 49
+  - GNOME 49 is the current stable platform (45 and 47 are EOL)
+  - Build successful with Python 3.13 (included in GNOME 49)
+  - Version bumped to 0.4.0 in pyproject.toml
+- **Acceptance Criteria**:
+  - [x] Flatpak manifest uses GNOME 49 runtime
+  - [x] No EOL runtime warnings when installing
+  - [x] Application builds successfully with new runtime
+  - [x] All features work correctly with new runtime
+  - [x] Version in pyproject.toml matches git branch (0.4.0)
+
 ---
 
 ## Completed Bug Fixes & Improvements
@@ -216,9 +233,10 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
 
 ### v0.4.0 - Core UX Improvements (In Development)
 **Branch**: v0.4.0
-**Completed Features**: 2 CRITICAL priority tasks
+**Completed Features**: 3 tasks
 - Keyboard Shortcuts (11 shortcuts implemented)
 - Conversation Search (with debounce and empty state)
+- Flatpak Runtime Update (GNOME 45 → GNOME 49, version bump to 0.4.0)
 
 ### v0.2.0 - Enhanced UX (Released)
 **Release Date**: 2023
@@ -250,10 +268,10 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
 
 ## Summary Statistics
 
-- **Total Completed Items**: 22
+- **Total Completed Items**: 23
 - **Phase 1 (v0.1.0)**: 9 tasks
 - **Phase 2 (v0.2.0)**: 7 tasks + 3 bonus features + 2 bug fixes
-- **Phase 4 (v0.4.0)**: 2 CRITICAL tasks (keyboard shortcuts, search)
+- **Phase 4 (v0.4.0)**: 3 CRITICAL tasks (keyboard shortcuts, search, Flatpak update)
 - **Releases**: 2 released (v0.1.0, v0.2.0), 1 in development (v0.4.0)
 
 ---
