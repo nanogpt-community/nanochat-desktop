@@ -1,7 +1,7 @@
 # Pending Tasks - NanoChat Desktop
 
-**Last Updated**: 2025-01-15
-**Current Version**: v0.2.0
+**Last Updated**: 2025-01-18
+**Current Version**: v0.4.0 (in development)
 **Status**: Consolidated task list for future development sessions
 
 ---
@@ -36,53 +36,18 @@ Allow users to copy message content to clipboard with a single click.
 
 ---
 
-### [ ] Keyboard Shortcuts
-**Source**: Phase 3, Task 3.13 (migrated from Phase 2)
-
-Enable efficient keyboard-driven usage.
-
-**Shortcuts to implement:**
-| Shortcut | Action | Scope |
-|----------|--------|-------|
-| `Ctrl+N` | New conversation | Global |
-| `Ctrl+Q` | Quit | Global |
-| `Ctrl+,` | Settings | Global |
-| `Ctrl+K` | Focus search | Sidebar |
-| `Escape` | Cancel/close | Various |
-| `Ctrl+Enter` | Send message | Chat input |
-| `Up/Down` | Navigate conversations | Sidebar |
-| `Ctrl+Shift+C` | Copy last response | Chat |
-| `F2` | Rename conversation | Sidebar |
-
-**Files**: `src/nanochat/application.py`, `src/nanochat/ui/window.py`
-
----
-
 ### [ ] Conversation Renaming
 **Source**: Phase 3, Task 3.11 (migrated from Phase 2)
 
 Allow users to rename conversations from the context menu.
+
+**Note**: F2 shortcut exists but shows "coming soon" toast. Full implementation needed.
 
 **Implementation:**
 - Right-click context menu on conversation rows
 - Inline entry or dialog for new title
 - Update API and local cache
 - Cancel reverts to original title
-
-**Files**: `src/nanochat/ui/window.py`, `src/nanochat/api/client.py`
-
----
-
-### [ ] Conversation Search
-**Source**: Phase 3, Task 3.10 (migrated from Phase 2)
-
-Allow users to search through their conversations.
-
-**Implementation:**
-- Search entry in sidebar above conversation list
-- Debounced search (300ms delay)
-- Works with cached data for instant results
-- Empty search shows all conversations
 
 **Files**: `src/nanochat/ui/window.py`, `src/nanochat/api/client.py`
 
@@ -1055,8 +1020,8 @@ Allow app to minimize to system tray.
 
 ## Summary Statistics
 
-- **Total Pending Tasks**: 60
-- **Critical Priority**: 6
+- **Total Pending Tasks**: 58
+- **Critical Priority**: 4 (Keyboard Shortcuts and Conversation Search completed 2025-01-18)
 - **High Priority**: 15
 - **Medium Priority**: 15
 - **Lower Priority**: 22
@@ -1077,10 +1042,10 @@ Allow app to minimize to system tray.
 
 ## Version Planning
 
-| Version | Focus | Task Count |
-|---------|-------|------------|
-| v0.3.0 | Assistants & Projects (HIGH) | 15 tasks |
-| v0.4.0 | Advanced Features (MEDIUM) | 15 tasks |
-| v0.5.0 | Polish & Release (LOWER) | 22 tasks |
-| v1.1.0+ | Future Enhancements | ~8 tasks |
-| Post-v1.0 | Experimental | ~4 tasks |
+| Version | Focus | Task Count | Status |
+|---------|-------|------------|--------|
+| v0.3.0 | Assistants & Projects (HIGH) | 15 tasks | Not started |
+| v0.4.0 | Core UX Improvements (CRITICAL) | 2 tasks completed | In progress |
+| v0.5.0 | Polish & Release (LOWER) | 22 tasks | Not started |
+| v1.1.0+ | Future Enhancements | ~8 tasks | Not started |
+| Post-v1.0 | Experimental | ~4 tasks | Not started |

@@ -1,7 +1,7 @@
 # Completed Items - NanoChat Desktop
 
-**Last Updated**: 2025-01-15
-**Current Version**: v0.2.0
+**Last Updated**: 2025-01-18
+**Current Version**: v0.4.0 (in development)
 
 ---
 
@@ -150,6 +150,71 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
 
 ---
 
+## Phase 4: Core UX Improvements (v0.4.0)
+
+### ✅ Keyboard Shortcuts
+- **Completed**: 2025-01-18 (commit 24539ca)
+- **Source**: Pending Tasks, CRITICAL Priority
+- **Description**: Comprehensive keyboard shortcuts for power-user productivity
+- **Files**: `src/nanochat/application.py`, `src/nanochat/ui/window.py`, `src/nanochat/ui/shortcuts_dialog.py`
+- **Implemented Shortcuts**:
+  - `Ctrl+N` - New conversation
+  - `Ctrl+Q` - Quit application
+  - `Ctrl+,` - Open settings
+  - `Ctrl+Shift+C` - Copy last assistant response to clipboard
+  - `F1` - Show keyboard shortcuts help dialog
+  - `Ctrl+K` - Focus search entry
+  - `Ctrl+Enter` - Send message
+  - `Escape` - Clear search / close dialogs
+  - `Up/Down` - Navigate conversations in sidebar
+  - `Enter` - Load selected conversation
+  - `F2` - Rename conversation (stub for future)
+- **Acceptance Criteria**:
+  - [x] All global shortcuts work via Gtk.Application actions
+  - [x] Window-level shortcuts handled via EventControllerKey
+  - [x] Sidebar navigation with arrow keys
+  - [x] Shortcuts help dialog displays all shortcuts correctly
+  - [x] No conflicts with system shortcuts
+
+### ✅ Conversation Search
+- **Completed**: 2025-01-18 (commit 24539ca)
+- **Source**: Pending Tasks, CRITICAL Priority
+- **Description**: Search entry in sidebar for filtering conversations by title
+- **Files**: `src/nanochat/ui/window.py`, `src/nanochat/application.py` (CSS)
+- **Features**:
+  - Search entry above conversation list
+  - 300ms debounce for smooth typing
+  - Case-insensitive title filtering
+  - Empty state when no matches found
+  - `Ctrl+K` focuses search from anywhere
+  - `Escape` clears search
+  - Preserves full list during filtering
+- **Acceptance Criteria**:
+  - [x] Search filters conversations correctly
+  - [x] Search responds within 400ms of typing stop
+  - [x] Empty state shows helpful message
+  - [x] Clearing search restores full list
+  - [x] Keyboard navigation works in filtered results
+
+### ✅ Flatpak Runtime Update
+- **Completed**: 2025-01-18 (commit ca2b579)
+- **Source**: GitHub Issue #2
+- **Description**: Update Flatpak runtime from GNOME 45 to GNOME 49
+- **Files**: `flatpak/com.nanogpt.NanoChat.yml`, `pyproject.toml`
+- **Changes**:
+  - Updated runtime-version from 45 to 49
+  - GNOME 49 is the current stable platform (45 and 47 are EOL)
+  - Build successful with Python 3.13 (included in GNOME 49)
+  - Version bumped to 0.4.0 in pyproject.toml
+- **Acceptance Criteria**:
+  - [x] Flatpak manifest uses GNOME 49 runtime
+  - [x] No EOL runtime warnings when installing
+  - [x] Application builds successfully with new runtime
+  - [x] All features work correctly with new runtime
+  - [x] Version in pyproject.toml matches git branch (0.4.0)
+
+---
+
 ## Completed Bug Fixes & Improvements
 
 ### ✅ Conversation Selection Fix
@@ -165,6 +230,13 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
 ---
 
 ## Release History
+
+### v0.4.0 - Core UX Improvements (In Development)
+**Branch**: v0.4.0
+**Completed Features**: 3 tasks
+- Keyboard Shortcuts (11 shortcuts implemented)
+- Conversation Search (with debounce and empty state)
+- Flatpak Runtime Update (GNOME 45 → GNOME 49, version bump to 0.4.0)
 
 ### v0.2.0 - Enhanced UX (Released)
 **Release Date**: 2023
@@ -196,10 +268,11 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
 
 ## Summary Statistics
 
-- **Total Completed Items**: 20
+- **Total Completed Items**: 23
 - **Phase 1 (v0.1.0)**: 9 tasks
 - **Phase 2 (v0.2.0)**: 7 tasks + 3 bonus features + 2 bug fixes
-- **Releases**: 2 (v0.1.0, v0.2.0)
+- **Phase 4 (v0.4.0)**: 3 CRITICAL tasks (keyboard shortcuts, search, Flatpak update)
+- **Releases**: 2 released (v0.1.0, v0.2.0), 1 in development (v0.4.0)
 
 ---
 
@@ -240,11 +313,14 @@ def _on_row_clicked(self, gesture, n_press, x, y, conv_id):
 
 ## Next Steps
 
-For the next development session, refer to `pending-tasks.md` for the prioritized list of remaining work. The most critical items are:
+For the next development session, refer to `pending-tasks.md` for the prioritized list of remaining work. The remaining CRITICAL priority items are:
 
 1. Message Copy Button
-2. Keyboard Shortcuts
-3. Conversation Renaming
-4. Conversation Search
+2. Conversation Renaming (full implementation - currently just a stub)
+3. Drag and Drop Attachments
 
-These should be completed before moving to Phase 3 (Assistants and Projects) features.
+Additional CRITICAL tasks that could be tackled:
+- Message Regeneration
+- Session Persistence
+
+These should be completed before moving to HIGH priority features like Phase 3 (Assistants and Projects).
