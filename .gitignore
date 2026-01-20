@@ -184,3 +184,15 @@ cython_debug/
 build/
 export/
 .flatpak-builder/
+
+# Flatpak builder output
+repo/
+repo-release/
+*.flatpak
+
+# Editor swap files
+.*.swp
+
+# Editor temp files
+*.kate-swp
+.*.kate-swp
