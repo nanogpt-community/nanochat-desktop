@@ -73,6 +73,49 @@ class Model(BaseModel):
     subscription: Optional[dict[str, Any]] = None
 
 
+class Assistant(BaseModel):
+    """Assistant model."""
+
+    id: str
+    name: str
+    description: Optional[str] = None
+    system_prompt: str = Field(alias="systemPrompt")
+    is_default: bool = Field(default=False, alias="isDefault")
+    default_model_id: Optional[str] = Field(default=None, alias="defaultModelId")
+    default_web_search_mode: Optional[str] = Field(default=None, alias="defaultWebSearchMode")
+    default_web_search_provider: Optional[str] = Field(default=None, alias="defaultWebSearchProvider")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+    model_config = {"populate_by_name": True}
+
+
+class CreateAssistantRequest(BaseModel):
+    """Request to create a new assistant."""
+
+    name: str
+    system_prompt: str = Field(alias="systemPrompt")
+    description: Optional[str] = None
+    default_model_id: Optional[str] = Field(default=None, alias="defaultModelId")
+    default_web_search_mode: Optional[str] = Field(default=None, alias="defaultWebSearchMode")
+    default_web_search_provider: Optional[str] = Field(default=None, alias="defaultWebSearchProvider")
+
+    model_config = {"populate_by_name": True}
+
+
+class UpdateAssistantRequest(BaseModel):
+    """Request to update an assistant."""
+
+    name: Optional[str] = None
+    description: Optional[str] = None
+    system_prompt: Optional[str] = Field(default=None, alias="systemPrompt")
+    default_model_id: Optional[str] = Field(default=None, alias="defaultModelId")
+    default_web_search_mode: Optional[str] = Field(default=None, alias="defaultWebSearchMode")
+    default_web_search_provider: Optional[str] = Field(default=None, alias="defaultWebSearchProvider")
+
+    model_config = {"populate_by_name": True}
+
+
 class GenerateMessageRequest(BaseModel):
     """Request to generate a message."""
 

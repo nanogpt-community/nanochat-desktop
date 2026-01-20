@@ -11,7 +11,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, GLib, Gtk
 
-from nanochat.api.models import Conversation, Message
+from nanochat.api.models import Assistant, Conversation, Message
 from nanochat.data.database import Database
 from nanochat.data.secrets import SecretsManager
 from nanochat.data.settings import SettingsManager
@@ -57,6 +57,10 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self._web_search_enabled: bool = False
         self._web_search_mode: str = "standard"
         self._web_search_provider: str = "tavily"
+        # Assistant state
+        self._assistants: list[Assistant] = []
+        self._assistant_ids: list[str] = []
+        self._current_assistant_id: str | None = None
 
         self.set_default_size(1200, 800)
         self.set_title("NanoChat")
@@ -158,7 +162,26 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         # Header bar with model selector
         header = Adw.HeaderBar()
 
-        # Model selector dropdown
+        # Left side: Assistant selector
+        assistant_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+
+        self.assistant_selector = Gtk.DropDown()
+        self.assistant_selector.set_tooltip_text("Select Assistant")
+        self._assistant_change_handler = self.assistant_selector.connect(
+            "notify::selected", self._on_assistant_changed
+        )
+        assistant_box.append(self.assistant_selector)
+
+        # Manage assistants button
+        manage_btn = Gtk.Button(icon_name="emblem-system-symbolic")
+        manage_btn.add_css_class("flat")
+        manage_btn.set_tooltip_text("Manage Assistants")
+        manage_btn.connect("clicked", self._on_manage_assistants)
+        assistant_box.append(manage_btn)
+
+        header.pack_start(assistant_box)
+
+        # Center: Model selector dropdown
         self.model_selector = Gtk.DropDown()
         self.model_selector.set_tooltip_text("Select Model")
         self._model_change_handler = self.model_selector.connect(
@@ -444,6 +467,8 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         """Handle window map event - load data after UI is ready."""
         if not self._model_ids:
             self._load_models()
+        if not self._assistants:
+            self._load_assistants()
         self._load_conversations()
 
     def _on_model_changed(self, dropdown: Gtk.DropDown, param: object) -> None:
@@ -509,6 +534,145 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         thread = threading.Thread(target=thread_func, daemon=True)
         thread.start()
+
+    def _load_assistants(self) -> None:
+        """Load assistants from API."""
+        url = self.settings_manager.settings.server.backend_url
+        key = self.secrets_manager.get_api_key()
+
+        if not url or not key:
+            return
+
+        def fetch() -> list[Assistant] | Exception:
+            from nanochat.api.client import NanoChatClient
+
+            async def get_assistants() -> list[Assistant]:
+                async with NanoChatClient(url, key) as client:
+                    return await client.get_assistants()
+
+            try:
+                loop = asyncio.new_event_loop()
+                assistants = loop.run_until_complete(get_assistants())
+                loop.close()
+                return assistants
+            except Exception as e:
+                return e
+
+        def on_complete(assistants: list[Assistant] | Exception) -> None:
+            if isinstance(assistants, Exception):
+                logger.error(f"Failed to load assistants: {assistants}")
+                return
+
+            self._assistants = assistants
+            self._update_assistant_dropdown(assistants)
+
+        def thread_func() -> None:
+            result = fetch()
+            GLib.idle_add(on_complete, result)
+
+        thread = threading.Thread(target=thread_func, daemon=True)
+        thread.start()
+
+    def _update_assistant_dropdown(self, assistants: list[Assistant]) -> None:
+        """Update the assistant dropdown with loaded assistants."""
+        # Block signal during setup
+        self.assistant_selector.handler_block(self._assistant_change_handler)
+
+        assistant_names = Gtk.StringList()
+        assistant_names.append("No Assistant")  # First option - no assistant
+        self._assistant_ids = [""]  # Empty string = no assistant
+
+        default_idx = 0  # Default to "No Assistant"
+
+        for i, assistant in enumerate(assistants):
+            name = assistant.name
+            if assistant.is_default:
+                name += " ★"
+                default_idx = i + 1  # +1 because of "No Assistant" option
+            assistant_names.append(name)
+            self._assistant_ids.append(assistant.id)
+
+        self.assistant_selector.set_model(assistant_names)
+        self.assistant_selector.set_selected(default_idx)
+        self._current_assistant_id = self._assistant_ids[default_idx] if default_idx > 0 else None
+
+        # Apply default assistant's settings if selected
+        if default_idx > 0:
+            self._apply_assistant_defaults(assistants[default_idx - 1])
+
+        self.assistant_selector.handler_unblock(self._assistant_change_handler)
+
+    def _on_assistant_changed(self, dropdown: Gtk.DropDown, param: object) -> None:
+        """Handle assistant selection change."""
+        selected_idx = dropdown.get_selected()
+        if selected_idx == Gtk.INVALID_LIST_POSITION or selected_idx >= len(self._assistant_ids):
+            return
+
+        assistant_id = self._assistant_ids[selected_idx]
+        self._current_assistant_id = assistant_id if assistant_id else None
+
+        # Apply assistant defaults if an assistant is selected
+        if assistant_id:
+            for assistant in self._assistants:
+                if assistant.id == assistant_id:
+                    self._apply_assistant_defaults(assistant)
+                    break
+
+    def _apply_assistant_defaults(self, assistant: Assistant) -> None:
+        """Apply an assistant's default settings."""
+        # Apply default model if set
+        if assistant.default_model_id and assistant.default_model_id in self._model_ids:
+            idx = self._model_ids.index(assistant.default_model_id)
+            self.model_selector.handler_block(self._model_change_handler)
+            self.model_selector.set_selected(idx)
+            self.model_selector.handler_unblock(self._model_change_handler)
+
+        # Apply default web search mode if set
+        if assistant.default_web_search_mode:
+            if assistant.default_web_search_mode == "off":
+                self._web_search_enabled = False
+                self.web_search_btn.set_active(False)
+            else:
+                self._web_search_enabled = True
+                self._web_search_mode = assistant.default_web_search_mode
+                self.web_search_btn.set_active(True)
+                self.web_search_popover.set_mode(assistant.default_web_search_mode)
+
+        if assistant.default_web_search_provider:
+            self._web_search_provider = assistant.default_web_search_provider
+            self.web_search_popover.set_provider(assistant.default_web_search_provider)
+
+    def _on_manage_assistants(self, button: Gtk.Button) -> None:
+        """Open assistants management dialog."""
+        from nanochat.ui.assistants_dialog import AssistantsDialog
+
+        url = self.settings_manager.settings.server.backend_url
+        key = self.secrets_manager.get_api_key()
+
+        if not url or not key:
+            self.toast_overlay.add_toast(Adw.Toast(title="Please configure backend first"))
+            return
+
+        # Build model list for dropdown in editor
+        model_list = [(mid, self._get_model_name(mid)) for mid in self._model_ids]
+
+        dialog = AssistantsDialog(
+            backend_url=url,
+            api_key=key,
+            model_list=model_list,
+        )
+        dialog.connect("assistants-changed", lambda _: self._load_assistants())
+        dialog.present(self)
+
+    def _get_model_name(self, model_id: str) -> str:
+        """Get model display name from ID."""
+        # Get from dropdown model
+        idx = self._model_ids.index(model_id) if model_id in self._model_ids else -1
+        if idx >= 0:
+            model = self.model_selector.get_model()
+            if model and idx < model.get_n_items():
+                return model.get_string(idx)
+        return model_id
 
     def _load_conversations(self, force_refresh: bool = False) -> None:
         """Load conversations from DB and then sync with API.
@@ -1123,12 +1287,16 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                     GLib.idle_add(self._show_error, error_msg)
 
             async def do_stream() -> None:
-                # Build request with optional web search parameters
+                # Build request with optional parameters
                 request_kwargs = {
                     "message": text,
                     "model_id": model_id,
                     "conversation_id": self._current_conversation_id,
                 }
+
+                # Add assistant if selected
+                if self._current_assistant_id:
+                    request_kwargs["assistant_id"] = self._current_assistant_id
 
                 # Add web search parameters if enabled
                 if self._web_search_enabled and self._web_search_mode != "off":
@@ -1304,4 +1472,5 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
     def reload_data(self) -> None:
         """Reload conversations and models (called after setup)."""
         self._load_models()
+        self._load_assistants()
         self._load_conversations()

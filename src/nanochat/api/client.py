@@ -8,6 +8,9 @@ from .models import (
     Conversation,
     Message,
     Model,
+    Assistant,
+    CreateAssistantRequest,
+    UpdateAssistantRequest,
     GenerateMessageRequest,
     SSEMessageStart,
     SSEDelta,
@@ -102,6 +105,54 @@ class NanoChatClient:
         """Get available models."""
         data = await self._request("GET", "/api/models")
         return [Model.model_validate(m) for m in data]
+
+    # Assistants
+    async def get_assistants(self) -> list[Assistant]:
+        """Get all assistants for the current user."""
+        data = await self._request("GET", "/api/assistants")
+        return [Assistant.model_validate(a) for a in data]
+
+    async def get_assistant(self, assistant_id: str) -> Assistant:
+        """Get a single assistant by ID."""
+        data = await self._request("GET", f"/api/assistants/{assistant_id}")
+        return Assistant.model_validate(data)
+
+    async def create_assistant(self, request: CreateAssistantRequest) -> Assistant:
+        """Create a new assistant."""
+        data = await self._request(
+            "POST",
+            "/api/assistants",
+            json=request.model_dump(exclude_none=True, by_alias=True),
+        )
+        return Assistant.model_validate(data)
+
+    async def update_assistant(
+        self, assistant_id: str, request: UpdateAssistantRequest
+    ) -> Assistant:
+        """Update an assistant."""
+        await self._request(
+            "PATCH",
+            f"/api/assistants/{assistant_id}",
+            json=request.model_dump(exclude_none=True, by_alias=True),
+        )
+        # API returns {"success": True} for updates, re-fetch all assistants to get updated data
+        assistants = await self.get_assistants()
+        for assistant in assistants:
+            if assistant.id == assistant_id:
+                return assistant
+        raise NanoChatAPIError(f"Updated assistant {assistant_id} not found in list")
+
+    async def delete_assistant(self, assistant_id: str) -> None:
+        """Delete an assistant."""
+        await self._request("DELETE", f"/api/assistants/{assistant_id}")
+
+    async def set_default_assistant(self, assistant_id: str) -> None:
+        """Set an assistant as the default."""
+        await self._request(
+            "POST",
+            f"/api/assistants/{assistant_id}",
+            json={"action": "setDefault"},
+        )
 
     # Connection test
     async def test_connection(self) -> bool:

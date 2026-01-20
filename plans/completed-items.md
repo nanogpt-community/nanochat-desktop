@@ -249,6 +249,50 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
   - [x] Web search parameters included in API requests when enabled
   - [x] Server performs web searches correctly
 
+### ✅ Assistants Feature
+- **Completed**: 2026-01-20
+- **Source**: Phase 3, HIGH Priority
+- **Description**: Full assistants management system with CRUD operations and UI integration
+- **Files**:
+  - `src/nanochat/api/models.py` (modified - added Assistant, CreateAssistantRequest, UpdateAssistantRequest)
+  - `src/nanochat/api/client.py` (modified - added assistant CRUD methods)
+  - `src/nanochat/ui/assistant_editor.py` (new - editor dialog for creating/editing)
+  - `src/nanochat/ui/assistants_dialog.py` (new - management dialog with list view)
+  - `src/nanochat/ui/window.py` (modified - added assistant selector and integration)
+- **Features Implemented**:
+  - Assistant selector dropdown in header bar (left side)
+  - "No Assistant" option to disable assistants
+  - Manage assistants button (gear icon) to open management dialog
+  - Create new assistants with name, description, and system prompt
+  - Edit existing assistants
+  - Delete assistants (except default)
+  - Set any assistant as default
+  - Default assistant marked with ★ star indicator
+  - Assistant defaults automatically applied when selected:
+    - Default model
+    - Default web search mode (off/standard/deep)
+    - Default web search provider
+  - Assistant ID included in message generation requests
+- **Implementation Details**:
+  - Pydantic models for Assistant API responses
+  - API client methods: get_assistants, create_assistant, update_assistant, delete_assistant, set_default_assistant
+  - Proper handling of API response formats (`{"success": true}` for updates)
+  - Signal-based communication between dialogs and main window
+  - Row tracking in PreferencesGroup to avoid Gtk critical warnings
+  - Signal handlers connected AFTER setting initial values to prevent premature validation
+- **Acceptance Criteria**:
+  - [x] Assistant selector appears in header bar
+  - [x] Assistants load on app startup
+  - [x] "No Assistant" is default option
+  - [x] Default assistant marked with star
+  - [x] Can create, edit, delete assistants
+  - [x] Can set default assistant
+  - [x] Assistant defaults applied when selected
+  - [x] Assistant ID sent with message requests
+  - [x] Management dialog shows all assistants
+  - [x] Changes refresh selector immediately
+  - [x] No Gtk warnings or errors during operation
+
 ---
 
 ## Completed Bug Fixes & Improvements
@@ -267,7 +311,13 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
 
 ## Release History
 
-### v0.4.0 - Core UX Improvements (In Development)
+### v0.5.0 - Assistants Feature (In Development)
+**Branch**: v0.5.0
+**Completed Features**: 2 tasks
+- Assistants Management (full CRUD with UI integration)
+- Web Search Toggle and Configuration (modes, providers, persistence)
+
+### v0.4.0 - Core UX Improvements (Released)
 **Branch**: v0.4.0
 **Completed Features**: 3 tasks
 - Keyboard Shortcuts (11 shortcuts implemented)
@@ -304,11 +354,12 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
 
 ## Summary Statistics
 
-- **Total Completed Items**: 23
+- **Total Completed Items**: 24
 - **Phase 1 (v0.1.0)**: 9 tasks
 - **Phase 2 (v0.2.0)**: 7 tasks + 3 bonus features + 2 bug fixes
+- **Phase 3 (v0.5.0)**: 1 HIGH priority task (Assistants)
 - **Phase 4 (v0.4.0)**: 3 CRITICAL tasks (keyboard shortcuts, search, Flatpak update)
-- **Releases**: 2 released (v0.1.0, v0.2.0), 1 in development (v0.4.0)
+- **Releases**: 2 released (v0.1.0, v0.2.0), 1 in development (v0.5.0)
 
 ---
 
