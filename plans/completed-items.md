@@ -293,6 +293,44 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
   - [x] Changes refresh selector immediately
   - [x] No Gtk warnings or errors during operation
 
+### ✅ Model Favorites Feature
+- **Completed**: 2026-01-20
+- **Source**: Issue #10, MEDIUM Priority
+- **Description**: Model favorites management with local storage (server endpoints not yet available)
+- **Files**:
+  - `src/nanochat/api/models.py` (modified - added is_favorite field to Model)
+  - `src/nanochat/api/client.py` (modified - added favorite/unfavorite methods for future use)
+  - `src/nanochat/data/settings.py` (modified - added favorite_models list to ChatSettings)
+  - `src/nanochat/ui/models_dialog.py` (new - management dialog with star buttons)
+  - `src/nanochat/ui/window.py` (modified - added gear icon, star prefix in dropdown)
+  - `src/nanochat/ui/__init__.py` (modified - added ModelsDialog export)
+  - `src/nanochat/application.py` (modified - added CSS styling for favorite models)
+- **Features Implemented**:
+  - Model selector dropdown shows ★ prefix for favorite models
+  - Manage models button (gear icon) to open management dialog
+  - Models management dialog with all available models
+  - Star button to favorite/unfavorite models
+  - Favorites sorted to top of list
+  - Visual distinction for favorites (background color, star icon)
+  - Local storage in config.toml (persists across restarts)
+- **Implementation Details**:
+  - Favorites stored in `chat.favorite_models` as list of model IDs
+  - Model dropdown shows "★ Model Name" for favorites
+  - Models dialog uses Adw.PreferencesGroup with ActionRows
+  - Row tracking to avoid Gtk warnings
+  - Optimistic UI updates (immediate, no API calls)
+  - Server API endpoints (favorite/unfavorite) implemented but not used until server supports them
+- **Acceptance Criteria**:
+  - [x] Star icon appears next to each model in management dialog
+  - [x] Clicking star favorites/unfavorites the model
+  - [x] Favorite status stored in local settings
+  - [x] Favorited models appear at top of list
+  - [x] UI updates immediately (no API calls needed)
+  - [x] Model dropdown shows ★ prefix for favorites
+  - [x] Favorite status persists across app restarts
+  - [x] Star has appropriate tooltip text
+  - [x] Visual distinction (background color) for favorites in dialog
+
 ---
 
 ## Completed Bug Fixes & Improvements
@@ -311,11 +349,12 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
 
 ## Release History
 
-### v0.5.0 - Assistants Feature (In Development)
+### v0.5.0 - Assistants & Model Favorites (In Development)
 **Branch**: v0.5.0
-**Completed Features**: 2 tasks
+**Completed Features**: 3 tasks
 - Assistants Management (full CRUD with UI integration)
 - Web Search Toggle and Configuration (modes, providers, persistence)
+- Model Favorites (local storage, visual distinction in dropdown and dialog)
 
 ### v0.4.0 - Core UX Improvements (Released)
 **Branch**: v0.4.0
@@ -354,10 +393,10 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
 
 ## Summary Statistics
 
-- **Total Completed Items**: 24
+- **Total Completed Items**: 25
 - **Phase 1 (v0.1.0)**: 9 tasks
 - **Phase 2 (v0.2.0)**: 7 tasks + 3 bonus features + 2 bug fixes
-- **Phase 3 (v0.5.0)**: 1 HIGH priority task (Assistants)
+- **Phase 3 (v0.5.0)**: 3 tasks (Assistants, Web Search, Model Favorites)
 - **Phase 4 (v0.4.0)**: 3 CRITICAL tasks (keyboard shortcuts, search, Flatpak update)
 - **Releases**: 2 released (v0.1.0, v0.2.0), 1 in development (v0.5.0)
 

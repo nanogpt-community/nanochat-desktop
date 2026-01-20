@@ -68,9 +68,12 @@ class Model(BaseModel):
     description: Optional[str] = None
     enabled: bool
     pinned: bool
+    is_favorite: bool = Field(default=False, alias="isFavorite")
     capabilities: ModelCapabilities
     pricing: Optional[ModelPricing] = None
     subscription: Optional[dict[str, Any]] = None
+
+    model_config = {"populate_by_name": True}
 
 
 class Assistant(BaseModel):

@@ -367,6 +367,16 @@ scrolledwindow scrollbar slider:hover {
     font-weight: 600;
     margin-bottom: 4px;
 }
+
+/* ========== Favorite Models ========== */
+
+.favorite-model {
+    background-color: alpha(@accent_color, 0.08);
+}
+
+.favorite-model button {
+    color: @warning_color;
+}
 """
 
         style_provider = Gtk.CssProvider()

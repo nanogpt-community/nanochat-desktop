@@ -41,6 +41,7 @@ class ChatSettings(BaseModel):
 
     default_model: str = ""
     web_search: WebSearchSettings = WebSearchSettings()
+    favorite_models: list[str] = []  # List of favorite model IDs
 
 
 class Settings(BaseModel):

@@ -106,6 +106,22 @@ class NanoChatClient:
         data = await self._request("GET", "/api/models")
         return [Model.model_validate(m) for m in data]
 
+    async def favorite_model(self, model_id: str) -> bool:
+        """Favorite a model."""
+        try:
+            await self._request("POST", f"/api/models/{model_id}/favorite")
+            return True
+        except Exception:
+            return False
+
+    async def unfavorite_model(self, model_id: str) -> bool:
+        """Unfavorite a model."""
+        try:
+            await self._request("DELETE", f"/api/models/{model_id}/favorite")
+            return True
+        except Exception:
+            return False
+
     # Assistants
     async def get_assistants(self) -> list[Assistant]:
         """Get all assistants for the current user."""

@@ -11,11 +11,12 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, GLib, Gtk
 
-from nanochat.api.models import Assistant, Conversation, Message
+from nanochat.api.models import Assistant, Conversation, Message, Model
 from nanochat.data.database import Database
 from nanochat.data.secrets import SecretsManager
 from nanochat.data.settings import SettingsManager
 from nanochat.ui.message_widget import MessageWidget
+from nanochat.ui.models_dialog import ModelsDialog
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self.settings_manager = settings_manager
         self.secrets_manager = secrets_manager
         self.database = database
+        self._models: list[Model] = []
         self._model_ids: list[str] = []
         self._conversations: list[Conversation] = []
         self._current_conversation_id: str | None = None
@@ -181,13 +183,25 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         header.pack_start(assistant_box)
 
-        # Center: Model selector dropdown
+        # Center: Model selector dropdown with manage button
+        model_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+
         self.model_selector = Gtk.DropDown()
+        self.model_selector.set_size_request(250, -1)  # Minimum width
         self.model_selector.set_tooltip_text("Select Model")
         self._model_change_handler = self.model_selector.connect(
             "notify::selected", self._on_model_changed
         )
-        header.set_title_widget(self.model_selector)
+        model_box.append(self.model_selector)
+
+        # Manage models button
+        manage_models_btn = Gtk.Button(icon_name="emblem-system-symbolic")
+        manage_models_btn.add_css_class("flat")
+        manage_models_btn.set_tooltip_text("Manage Models")
+        manage_models_btn.connect("clicked", self._on_manage_models)
+        model_box.append(manage_models_btn)
+
+        header.set_title_widget(model_box)
 
         # Settings button
         settings_btn = Gtk.Button(icon_name="emblem-system-symbolic")
@@ -489,13 +503,24 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         if not url or not key:
             return
 
-        def fetch() -> list[object] | Exception:
+        def fetch() -> list[Model] | Exception:
             from nanochat.api.client import NanoChatClient
 
-            async def get_models() -> list[object]:
+            async def get_models() -> list[Model]:
                 async with NanoChatClient(url, key) as client:
                     models = await client.get_models()
-                    return [m for m in models if m.enabled]
+                    # Get favorites from local settings
+                    favorite_ids = self.settings_manager.settings.chat.favorite_models
+
+                    # Set is_favorite based on local settings
+                    for model in models:
+                        model.is_favorite = model.id in favorite_ids
+
+                    # Sort: favorites first, then alphabetically
+                    return sorted(
+                        [m for m in models if m.enabled],
+                        key=lambda m: (not m.is_favorite, m.name.lower())
+                    )
 
             try:
                 loop = asyncio.new_event_loop()
@@ -505,16 +530,21 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             except Exception as e:
                 return e
 
-        def on_complete(models: list[object] | Exception) -> None:
+        def on_complete(models: list[Model] | Exception) -> None:
             if isinstance(models, Exception):
                 logger.error(f"Failed to load models: {models}")
                 return
 
+            # Store full model objects
+            self._models = models
+
             model_names = Gtk.StringList()
             self._model_ids = []
             for model in models:
-                model_names.append(model.name)  # type: ignore[attr-defined]
-                self._model_ids.append(model.id)  # type: ignore[attr-defined]
+                # Add star prefix for favorites
+                display_name = f"★ {model.name}" if model.is_favorite else model.name
+                model_names.append(display_name)
+                self._model_ids.append(model.id)
 
             # Block signal to prevent overwriting saved setting during setup
             self.model_selector.handler_block(self._model_change_handler)
@@ -663,6 +693,21 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         )
         dialog.connect("assistants-changed", lambda _: self._load_assistants())
         dialog.present(self)
+
+    def _on_manage_models(self, button: Gtk.Button) -> None:
+        """Open models management dialog."""
+        if not self._models:
+            self.toast_overlay.add_toast(Adw.Toast(title="No models loaded"))
+            return
+
+        dialog = ModelsDialog(settings_manager=self.settings_manager, models=self._models)
+        dialog.connect("models-changed", self._on_models_changed)
+        dialog.present(self)
+
+    def _on_models_changed(self, dialog: ModelsDialog) -> None:  # noqa: ARG002 (unused param for signal)
+        """Handle models changed signal from management dialog."""
+        # Reload models to refresh the dropdown with new sort order
+        self._load_models()
 
     def _get_model_name(self, model_id: str) -> str:
         """Get model display name from ID."""
