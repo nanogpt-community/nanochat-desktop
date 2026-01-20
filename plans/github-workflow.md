@@ -2,6 +2,16 @@
 
 This document describes the Git workflow, branch strategy, and release process for the NanoChat Desktop project.
 
+## ⚠️ Critical Reminder: Version Numbers
+
+**ALWAYS update version numbers when creating a new version branch!**
+
+When creating `v0.X.0` branch, immediately update:
+- `pyproject.toml`: `version = "0.X.0"`
+- `src/nanochat/__init__.py`: `__version__ = "0.X.0"`
+
+This should be your **first commit** on the new branch. See "Starting a New Phase" below for the exact commands.
+
 ---
 
 ## Repository Setup
@@ -94,6 +104,13 @@ git pull origin main
 
 # Create new version branch from main (or previous version)
 git checkout -b v0.2.0
+
+# IMPORTANT: Update version numbers immediately after creating branch
+# - pyproject.toml: version = "0.2.0"
+# - src/nanochat/__init__.py: __version__ = "0.2.0"
+# Commit this as your first commit on the new branch
+git add pyproject.toml src/nanochat/__init__.py
+git commit -m "chore: bump version to 0.2.0"
 
 # Push to remote
 git push -u origin v0.2.0
@@ -266,6 +283,8 @@ gh pr merge 1 --rebase
 
 ## Release Process
 
+**IMPORTANT**: Version numbers should already be updated when the version branch was created. Verify they match the branch name before proceeding.
+
 ### Pre-Release Checklist
 
 ```bash
@@ -275,16 +294,20 @@ git checkout v0.1.0
 # Verify all changes committed
 git status
 
+# Verify version numbers match branch (e.g., v0.1.0 → 0.1.0)
+grep "version.*=.*0\\.1\\.0" pyproject.toml
+grep "__version__.*=.*0\\.1\\.0" src/nanochat/__init__.py
+
+# If versions don't match, update them NOW:
+# sed -i 's/version = "0.0.0"/version = "0.1.0"/' pyproject.toml
+# sed -i 's/__version__ = "0.0.0"/__version__ = "0.1.0"/' src/nanochat/__init__.py
+# git add pyproject.toml src/nanochat/__init__.py
+# git commit -m "chore: bump version to 0.1.0"
+
 # Verify tests pass (if any)
 python -m pytest
 
-# Update version in files
-# - pyproject.toml: version = "0.1.0"
-# - src/nanochat/__init__.py: __version__ = "0.1.0"
-
-# Commit version update
-git add pyproject.toml src/nanochat/__init__.py
-git commit -m "chore: bump version to 0.1.0"
+# Push any final changes
 git push origin v0.1.0
 ```
 
