@@ -1,3 +1,5 @@
 """NanoChat UI module."""
 
-__all__ = []
+from .web_search_config import WebSearchConfigPopover
+
+__all__ = ["WebSearchConfigPopover"]

@@ -137,11 +137,16 @@ class NanoChatClient:
         """
         received_complete = False
 
+        # Get the JSON payload that will be sent
+        # NOTE: Use by_alias=False because the API expects snake_case (model_id, web_search_enabled)
+        # not camelCase (modelId, webSearchEnabled)
+        json_payload = request.model_dump(exclude_none=True, by_alias=False)
+
         try:
             async with self._client.stream(  # type: ignore[union-attr]
                 "POST",
                 "/api/generate-message/stream",
-                json=request.model_dump(exclude_none=True, by_alias=True),
+                json=json_payload,
             ) as response:
                 response.raise_for_status()
 

@@ -1,7 +1,7 @@
 # Pending Tasks - NanoChat Desktop
 
-**Last Updated**: 2025-01-18
-**Current Version**: v0.4.0 (in development)
+**Last Updated**: 2026-01-20
+**Current Version**: v0.5.0 (in development)
 **Status**: Consolidated task list for future development sessions
 
 ---
@@ -380,36 +380,6 @@ Response:
 ## MEDIUM Priority (Power User Features)
 
 These features add advanced functionality for power users.
-
-### [ ] Web Search Toggle
-**Source**: Phase 4, Task 4.1
-
-Add web search toggle to chat input area.
-
-**Implementation:**
-- Toggle button in input area
-- Visual feedback when enabled
-- Web search included in request when enabled
-- Toggle state persists during session
-
-**Files**: `src/nanochat/ui/window.py`
-
----
-
-### [ ] Web Search Configuration
-**Source**: Phase 4, Task 4.2
-
-Allow users to configure web search provider and mode.
-
-**Implementation:**
-- Config popover (long-press or right-click on web search button)
-- Mode selector: Standard, Deep
-- Provider selector: Tavily, Linkup, Exa, Kagi
-- Settings used in message generation
-
-**Files to create**: `src/nanochat/ui/web_search_config.py`
-
----
 
 ### [ ] Image Attachments
 **Source**: Phase 4, Task 4.3

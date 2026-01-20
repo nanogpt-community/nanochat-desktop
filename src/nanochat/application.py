@@ -343,6 +343,30 @@ scrolledwindow scrollbar slider {
 scrolledwindow scrollbar slider:hover {
     background-color: alpha(@shade_color, 0.7);
 }
+
+/* ========== Web Search Toggle Button ========== */
+
+.web-search-toggle {
+    min-width: 36px;
+    min-height: 36px;
+    border-radius: 50%;
+}
+
+.web-search-toggle.web-search-active {
+    background-color: @accent_bg_color;
+    color: @accent_fg_color;
+}
+
+.web-search-toggle.web-search-active:hover {
+    background-color: shade(@accent_bg_color, 0.9);
+}
+
+/* ========== Web Search Config Popover ========== */
+
+.web-search-config .heading {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
 """
 
         style_provider = Gtk.CssProvider()

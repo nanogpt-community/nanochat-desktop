@@ -1,7 +1,7 @@
 # Completed Items - NanoChat Desktop
 
-**Last Updated**: 2025-01-18
-**Current Version**: v0.4.0 (in development)
+**Last Updated**: 2026-01-20
+**Current Version**: v0.5.0 (in development)
 
 ---
 
@@ -212,6 +212,42 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
   - [x] Application builds successfully with new runtime
   - [x] All features work correctly with new runtime
   - [x] Version in pyproject.toml matches git branch (0.4.0)
+
+### ✅ Web Search Toggle and Configuration
+- **Completed**: 2026-01-20
+- **Source**: Phase 4, Tasks 4.1-4.2 (MEDIUM Priority)
+- **Description**: Web search functionality with toggle button and configuration popover
+- **Files**:
+  - `src/nanochat/ui/web_search_config.py` (new)
+  - `src/nanochat/ui/window.py` (modified)
+  - `src/nanochat/ui/__init__.py` (modified)
+  - `src/nanochat/api/models.py` (modified)
+  - `src/nanochat/api/client.py` (modified)
+  - `src/nanochat/data/settings.py` (modified)
+  - `src/nanochat/application.py` (modified - CSS)
+- **Features Implemented**:
+  - Toggle button in input area (search icon, left of text entry)
+  - Visual feedback when enabled (accent color)
+  - Right-click or long-press to open configuration popover
+  - Mode selection: Off, Standard (quick), Deep (comprehensive)
+  - Provider selection: Tavily (recommended), Linkup, Exa, Kagi
+  - Settings persist across app restarts
+  - Dynamic tooltip showing current mode when enabled
+  - Web search parameters sent to API when enabled
+- **Implementation Details**:
+  - `WebSearchSettings` model with enabled, mode, provider fields
+  - `WebSearchConfigPopover` widget with radio button groups
+  - API model updated with `web_search_provider` field
+  - API client uses snake_case serialization (`by_alias=False`) to match server expectations
+  - Settings integrated into existing `ChatSettings` structure
+- **Acceptance Criteria**:
+  - [x] Toggle button appears in input area
+  - [x] Toggle state persists across restarts
+  - [x] Right-click/long-press opens configuration popover
+  - [x] Mode and provider selection works
+  - [x] Visual feedback (button color, tooltip)
+  - [x] Web search parameters included in API requests when enabled
+  - [x] Server performs web searches correctly
 
 ---
 

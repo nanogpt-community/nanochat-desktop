@@ -28,10 +28,19 @@ class UISettings(BaseModel):
     sidebar_width: int = 280
 
 
+class WebSearchSettings(BaseModel):
+    """Web search preferences."""
+
+    enabled: bool = False
+    mode: str = "standard"  # off, standard, deep
+    provider: str = "tavily"  # linkup, tavily, exa, kagi
+
+
 class ChatSettings(BaseModel):
     """Chat preferences."""
 
     default_model: str = ""
+    web_search: WebSearchSettings = WebSearchSettings()
 
 
 class Settings(BaseModel):

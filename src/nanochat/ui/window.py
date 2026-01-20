@@ -53,6 +53,10 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self._search_query: str = ""
         self._debounce_timer_id: int | None = None
         self._search_debounce_ms: int = 300  # 300ms debounce
+        # Web search state
+        self._web_search_enabled: bool = False
+        self._web_search_mode: str = "standard"
+        self._web_search_provider: str = "tavily"
 
         self.set_default_size(1200, 800)
         self.set_title("NanoChat")
@@ -194,21 +198,56 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         return page
 
     def _create_input_area(self) -> Gtk.Box:
-        """Create message input area."""
+        """Create message input area with web search toggle."""
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         box.set_margin_start(12)
         box.set_margin_end(12)
         box.set_margin_bottom(12)
-        box.add_css_class("linked")
         box.add_css_class("chat-input-box")
 
-        # Text entry
+        # Web search toggle button
+        self.web_search_btn = Gtk.ToggleButton()
+        self.web_search_btn.set_icon_name("edit-find-symbolic")
+        self.web_search_btn.set_tooltip_text("Enable web search")
+        self.web_search_btn.add_css_class("flat")
+        self.web_search_btn.add_css_class("web-search-toggle")
+        self.web_search_btn.connect("toggled", self._on_web_search_toggled)
+        box.append(self.web_search_btn)
+
+        # Web search config popover (attached to toggle button)
+        from nanochat.ui.web_search_config import WebSearchConfigPopover
+
+        self.web_search_popover = WebSearchConfigPopover(
+            initial_mode=self._web_search_mode,
+            initial_provider=self._web_search_provider,
+        )
+        self.web_search_popover.set_parent(self.web_search_btn)
+        self.web_search_popover.connect("settings-changed", self._on_web_search_settings_changed)
+
+        # Add right-click handler for config popover
+        right_click = Gtk.GestureClick()
+        right_click.set_button(3)  # Right mouse button
+        right_click.connect("pressed", self._on_web_search_right_click)
+        self.web_search_btn.add_controller(right_click)
+
+        # Add long-press handler for touch/mouse
+        long_press = Gtk.GestureLongPress()
+        long_press.connect("pressed", self._on_web_search_long_press)
+        self.web_search_btn.add_controller(long_press)
+
+        # Text entry (with linked styling)
+        entry_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        entry_box.add_css_class("linked")
+        entry_box.set_hexpand(True)
+
         self.message_entry = Gtk.Entry()
         self.message_entry.set_placeholder_text("Type a message...")
         self.message_entry.set_hexpand(True)
         self.message_entry.set_sensitive(True)
         self.message_entry.connect("activate", self._on_send)
-        box.append(self.message_entry)
+        entry_box.append(self.message_entry)
+
+        box.append(entry_box)
 
         # Send button
         self.send_btn = Gtk.Button(icon_name="mail-send-symbolic")
@@ -218,6 +257,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self.send_btn.set_sensitive(True)
         self.send_btn.connect("clicked", self._on_send)
         box.append(self.send_btn)
+
+        # Load saved web search preferences
+        self._load_web_search_settings()
 
         return box
 
@@ -933,6 +975,83 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         # Reload conversations
         self._load_conversations(force_refresh=True)
 
+    def _load_web_search_settings(self) -> None:
+        """Load web search settings from preferences."""
+        # Check if settings has web_search attribute (backward compatibility)
+        if hasattr(self.settings_manager.settings.chat, "web_search"):
+            ws = self.settings_manager.settings.chat.web_search
+            self._web_search_enabled = ws.enabled
+            self._web_search_mode = ws.mode
+            self._web_search_provider = ws.provider
+
+            # Update UI state
+            self.web_search_btn.set_active(self._web_search_enabled)
+            self.web_search_popover.set_mode(self._web_search_mode)
+            self.web_search_popover.set_provider(self._web_search_provider)
+
+    def _save_web_search_settings(self) -> None:
+        """Save web search settings to preferences."""
+        if hasattr(self.settings_manager.settings.chat, "web_search"):
+            self.settings_manager.settings.chat.web_search.enabled = self._web_search_enabled
+            self.settings_manager.settings.chat.web_search.mode = self._web_search_mode
+            self.settings_manager.settings.chat.web_search.provider = self._web_search_provider
+            self.settings_manager.save()
+
+    def _on_web_search_toggled(self, button: Gtk.ToggleButton) -> None:
+        """Handle web search toggle button."""
+        self._web_search_enabled = button.get_active()
+
+        # Update button appearance
+        if self._web_search_enabled:
+            button.add_css_class("web-search-active")
+            mode_label = "Standard" if self._web_search_mode == "standard" else "Deep"
+            button.set_tooltip_text(f"Web search: {mode_label} (right-click to configure)")
+        else:
+            button.remove_css_class("web-search-active")
+            button.set_tooltip_text("Enable web search (right-click to configure)")
+
+        # Save preference
+        self._save_web_search_settings()
+
+    def _on_web_search_right_click(
+        self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float
+    ) -> None:
+        """Show web search config popover on right-click."""
+        self.web_search_popover.popup()
+
+    def _on_web_search_long_press(
+        self, gesture: Gtk.GestureLongPress, x: float, y: float
+    ) -> None:
+        """Show web search config popover on long-press."""
+        self.web_search_popover.popup()
+
+    def _on_web_search_settings_changed(
+        self, popover: object, mode: str, provider: str
+    ) -> None:
+        """Handle web search settings change from popover."""
+        self._web_search_mode = mode
+        self._web_search_provider = provider
+
+        # If mode is "off", disable web search
+        if mode == "off":
+            self._web_search_enabled = False
+            self.web_search_btn.set_active(False)
+        elif not self._web_search_enabled:
+            # If selecting a non-off mode and search is disabled, enable it
+            self._web_search_enabled = True
+            self.web_search_btn.set_active(True)
+
+        # Update tooltip
+        if self._web_search_enabled:
+            mode_label = "Standard" if mode == "standard" else "Deep"
+            self.web_search_btn.set_tooltip_text(f"Web search: {mode_label} (right-click to configure)")
+
+        # Save preference
+        self._save_web_search_settings()
+
+        # Close popover
+        self.web_search_popover.popdown()
+
     def _on_send(self, widget: Gtk.Widget) -> None:
         """Handle send button click."""
         if self._is_sending:
@@ -1004,11 +1123,20 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                     GLib.idle_add(self._show_error, error_msg)
 
             async def do_stream() -> None:
-                request = GenerateMessageRequest(
-                    message=text,
-                    model_id=model_id,
-                    conversation_id=self._current_conversation_id,
-                )
+                # Build request with optional web search parameters
+                request_kwargs = {
+                    "message": text,
+                    "model_id": model_id,
+                    "conversation_id": self._current_conversation_id,
+                }
+
+                # Add web search parameters if enabled
+                if self._web_search_enabled and self._web_search_mode != "off":
+                    request_kwargs["web_search_enabled"] = True
+                    request_kwargs["web_search_mode"] = self._web_search_mode
+                    request_kwargs["web_search_provider"] = self._web_search_provider
+
+                request = GenerateMessageRequest(**request_kwargs)
 
                 try:
                     async with NanoChatClient(url, key) as client:
