@@ -123,7 +123,7 @@ class ImageAttachment(BaseModel):
     """Image attachment for message generation."""
 
     url: str
-    storage_id: str = Field(alias="storage_id")
+    storage_id: str = Field(alias="storageId")
     file_name: Optional[str] = Field(default=None, alias="fileName")
 
     model_config = {"populate_by_name": True}
@@ -133,7 +133,7 @@ class DocumentAttachment(BaseModel):
     """Document attachment for message generation."""
 
     url: str
-    storage_id: str = Field(alias="storage_id")
+    storage_id: str = Field(alias="storageId")
     file_name: Optional[str] = Field(default=None, alias="fileName")
     file_type: str = Field(alias="fileType")  # pdf, markdown, text, epub
 
@@ -144,13 +144,13 @@ class GenerateMessageRequest(BaseModel):
     """Request to generate a message."""
 
     message: Optional[str] = None
-    model_id: str
+    model_id: str = Field(alias="modelId")
     assistant_id: Optional[str] = Field(default=None, alias="assistantId")
     project_id: Optional[str] = Field(default=None, alias="projectId")
-    conversation_id: Optional[str] = None
-    web_search_enabled: Optional[bool] = None
-    web_search_mode: Optional[str] = None
-    web_search_provider: Optional[str] = None
+    conversation_id: Optional[str] = Field(default=None, alias="conversationId")
+    web_search_enabled: Optional[bool] = Field(default=None, alias="webSearchEnabled")
+    web_search_mode: Optional[str] = Field(default=None, alias="webSearchMode")
+    web_search_provider: Optional[str] = Field(default=None, alias="webSearchProvider")
     reasoning_effort: Optional[str] = Field(default=None, alias="reasoningEffort")
     temporary: Optional[bool] = None
     # File attachments

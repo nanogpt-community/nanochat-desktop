@@ -264,9 +264,8 @@ class NanoChatClient:
         received_complete = False
 
         # Get the JSON payload that will be sent
-        # NOTE: Use by_alias=False because the API expects snake_case (model_id, web_search_enabled)
-        # not camelCase (modelId, webSearchEnabled)
-        json_payload = request.model_dump(exclude_none=True, by_alias=False)
+        # Use by_alias=True to properly serialize field aliases (camelCase)
+        json_payload = request.model_dump(exclude_none=True, by_alias=True)
 
         try:
             async with self._client.stream(  # type: ignore[union-attr]
