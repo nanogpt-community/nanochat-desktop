@@ -1,7 +1,7 @@
 # Pending Tasks - NanoChat Desktop
 
-**Last Updated**: 2026-01-20
-**Current Version**: v0.5.0 (in development)
+**Last Updated**: 2026-01-21
+**Current Version**: v0.6.0 (Released)
 **Status**: Consolidated task list for future development sessions
 
 ---

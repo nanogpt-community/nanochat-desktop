@@ -1,7 +1,7 @@
 # Completed Items - NanoChat Desktop
 
 **Last Updated**: 2026-01-21
-**Current Version**: v0.6.0 (in development)
+**Current Version**: v0.6.0 (Released)
 
 ---
 
@@ -435,7 +435,8 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
 
 ## Release History
 
-### v0.6.0 - File Attachments & Polish (In Development)
+### v0.6.0 - File Attachments & Polish (Released)
+**Release Date**: 2026-01-21
 **Branch**: v0.6.0
 **Completed Features**: 3 tasks
 - File Attachments (images and documents with drag-and-drop support)
