@@ -1501,6 +1501,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                                     attachment.mime_type,
                                 )
                                 attachment.storage_id = storage_id
+                                # If file_url is relative, construct full URL
+                                if file_url.startswith('/'):
+                                    file_url = f"{url}{file_url}"
                                 attachment.url = file_url
                             except Exception as e:
                                 attachment.upload_error = str(e)

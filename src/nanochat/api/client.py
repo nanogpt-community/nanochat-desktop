@@ -218,6 +218,7 @@ class NanoChatClient:
             )
             response.raise_for_status()
             data = response.json()
+            logger.debug(f"Upload response: {data}")
             return data["storageId"], data["url"]
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
