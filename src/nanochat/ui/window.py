@@ -1357,10 +1357,6 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self._pending_attachments.append(attachment)
         self._attachment_preview_bar.add_attachment(attachment)
 
-        # Show toast
-        type_label = "image" if attachment.attachment_type == AttachmentType.IMAGE else "document"
-        self.toast_overlay.add_toast(Adw.Toast(title=f"Attached {type_label}: {attachment.filename}"))
-
     def _on_attachment_remove(self, attachment: PendingAttachment) -> None:
         """Handle removal of an attachment."""
         if attachment in self._pending_attachments:
