@@ -1,7 +1,7 @@
 # Issue #13: Add version number to settings screen
 
 **Issue URL**: https://github.com/nanogpt-community/nanochat-desktop/issues/13
-**Status**: OPEN
+**Status**: COMPLETED (2026-01-21)
 **Priority**: LOW
 
 ## Description

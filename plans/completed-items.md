@@ -1,7 +1,7 @@
 # Completed Items - NanoChat Desktop
 
-**Last Updated**: 2026-01-20
-**Current Version**: v0.5.0 (in development)
+**Last Updated**: 2026-01-21
+**Current Version**: v0.6.0 (in development)
 
 ---
 
@@ -435,7 +435,14 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
 
 ## Release History
 
-### v0.5.0 - Assistants & Model Favorites (In Development)
+### v0.6.0 - File Attachments & Polish (In Development)
+**Branch**: v0.6.0
+**Completed Features**: 3 tasks
+- File Attachments (images and documents with drag-and-drop support)
+- PDF Document Support (fixed field aliases for proper API serialization)
+- Version Number in Settings (About page with GitHub links)
+
+### v0.5.0 - Assistants & Model Favorites (Released)
 **Branch**: v0.5.0
 **Completed Features**: 3 tasks
 - Assistants Management (full CRUD with UI integration)
