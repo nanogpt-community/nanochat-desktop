@@ -34,6 +34,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         self.role = role
         self.content = content
         self._content_label: Optional[Gtk.Label] = None
+        self._copy_btn: Optional[Gtk.Button] = None
 
         self._build_ui()
 
@@ -49,9 +50,14 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         else:
             container.add_css_class("assistant")
 
+        # Header row with role label and copy button
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header_box.set_hexpand(True)
+
         # Role label with improved styling
         role_label = Gtk.Label()
         role_label.set_halign(Gtk.Align.START)
+        role_label.set_hexpand(True)
         role_label.add_css_class("message-role-label")
 
         if self.role == "user":
@@ -61,7 +67,20 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
             role_label.set_text("Assistant")
             role_label.add_css_class("assistant")
 
-        container.append(role_label)
+        header_box.append(role_label)
+
+        # Copy button (hidden by default, shown on hover)
+        self._copy_btn = Gtk.Button(icon_name="edit-copy-symbolic")
+        self._copy_btn.add_css_class("flat")
+        self._copy_btn.add_css_class("circular")
+        self._copy_btn.add_css_class("message-copy-btn")
+        self._copy_btn.set_tooltip_text("Copy message")
+        self._copy_btn.set_valign(Gtk.Align.CENTER)
+        self._copy_btn.set_opacity(0)
+        self._copy_btn.connect("clicked", self._on_copy_clicked)
+        header_box.append(self._copy_btn)
+
+        container.append(header_box)
 
         # Content container with card-like styling
         content_frame = Adw.Bin()
@@ -90,7 +109,63 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         content_frame.set_child(self._content_label)
         container.append(content_frame)
 
+        # Add hover controller for showing/hiding copy button
+        motion_controller = Gtk.EventControllerMotion()
+        motion_controller.connect("enter", self._on_mouse_enter)
+        motion_controller.connect("leave", self._on_mouse_leave)
+        container.add_controller(motion_controller)
+
         self.set_child(container)
+
+    def _on_mouse_enter(
+        self,
+        controller: Gtk.EventControllerMotion,
+        x: float,
+        y: float,
+    ) -> None:
+        """Show copy button on hover."""
+        if self._copy_btn:
+            self._copy_btn.set_opacity(1)
+
+    def _on_mouse_leave(self, controller: Gtk.EventControllerMotion) -> None:
+        """Hide copy button when mouse leaves."""
+        if self._copy_btn:
+            self._copy_btn.set_opacity(0)
+
+    def _on_copy_clicked(self, button: Gtk.Button) -> None:
+        """Copy message content to clipboard."""
+        # Get the raw content (without markdown rendering)
+        clipboard = Gdk.Display.get_default().get_clipboard()
+        clipboard.set(self.content)
+
+        # Show feedback by temporarily changing icon
+        button.set_icon_name("object-select-symbolic")
+        button.set_tooltip_text("Copied!")
+
+        # Reset icon after delay
+        def reset_icon() -> bool:
+            button.set_icon_name("edit-copy-symbolic")
+            button.set_tooltip_text("Copy message")
+            return False  # Don't repeat
+
+        GLib.timeout_add(1500, reset_icon)
+
+        # Also show toast if we can find the toast overlay
+        self._show_copy_toast()
+
+    def _show_copy_toast(self) -> None:
+        """Try to show a toast notification for copy action."""
+        # Walk up the widget hierarchy to find a ToastOverlay
+        widget = self.get_parent()
+        while widget is not None:
+            if hasattr(widget, "toast_overlay"):
+                widget.toast_overlay.add_toast(Adw.Toast(title="Copied to clipboard"))
+                return
+            # Check if this IS a ToastOverlay
+            if isinstance(widget, Adw.ToastOverlay):
+                widget.add_toast(Adw.Toast(title="Copied to clipboard"))
+                return
+            widget = widget.get_parent()
 
     def _render_markdown(self, text: str) -> str:
         """Convert basic markdown to Pango markup.

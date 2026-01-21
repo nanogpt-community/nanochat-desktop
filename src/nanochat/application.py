@@ -377,6 +377,24 @@ scrolledwindow scrollbar slider:hover {
 .favorite-model button {
     color: @warning_color;
 }
+
+/* ========== Message Copy Button ========== */
+
+.message-copy-btn {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 4px;
+    transition: opacity 200ms ease-in-out;
+}
+
+.message-copy-btn:hover {
+    background-color: alpha(@accent_bg_color, 0.15);
+}
+
+/* Ensure button is visible when message is hovered */
+.message-widget:hover .message-copy-btn {
+    opacity: 1;
+}
 """
 
         style_provider = Gtk.CssProvider()
