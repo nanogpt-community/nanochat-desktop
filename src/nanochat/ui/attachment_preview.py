@@ -1,5 +1,6 @@
 """Attachment preview widgets for the input area."""
 
+from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -119,7 +120,7 @@ class AttachmentPreviewBar(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, **kwargs)
 
         self._on_remove = on_remove
-        self._thumbnails: dict[PendingAttachment, AttachmentThumbnail] = {}
+        self._thumbnails: dict[Path, tuple[PendingAttachment, AttachmentThumbnail]] = {}
 
         self.add_css_class("attachment-preview-bar")
         self.set_margin_start(12)
@@ -141,14 +142,14 @@ class AttachmentPreviewBar(Gtk.Box):
     def add_attachment(self, attachment: PendingAttachment) -> None:
         """Add an attachment to the preview bar."""
         thumbnail = AttachmentThumbnail(attachment, self._on_remove)
-        self._thumbnails[attachment] = thumbnail
+        self._thumbnails[attachment.path] = (attachment, thumbnail)
         self._box.append(thumbnail)
         self.set_visible(True)
 
     def remove_attachment(self, attachment: PendingAttachment) -> None:
         """Remove an attachment from the preview bar."""
-        if attachment in self._thumbnails:
-            thumbnail = self._thumbnails.pop(attachment)
+        if attachment.path in self._thumbnails:
+            _, thumbnail = self._thumbnails.pop(attachment.path)
             self._box.remove(thumbnail)
 
         # Hide if empty
@@ -157,18 +158,18 @@ class AttachmentPreviewBar(Gtk.Box):
 
     def clear(self) -> None:
         """Remove all attachments."""
-        for thumbnail in list(self._thumbnails.values()):
+        for _, thumbnail in list(self._thumbnails.values()):
             self._box.remove(thumbnail)
         self._thumbnails.clear()
         self.set_visible(False)
 
     def update_attachment(self, attachment: PendingAttachment) -> None:
         """Update display for an attachment (e.g., after upload)."""
-        if attachment in self._thumbnails:
+        if attachment.path in self._thumbnails:
             # Rebuild the thumbnail
-            old_thumbnail = self._thumbnails[attachment]
+            _, old_thumbnail = self._thumbnails[attachment.path]
             new_thumbnail = AttachmentThumbnail(attachment, self._on_remove)
-            self._thumbnails[attachment] = new_thumbnail
+            self._thumbnails[attachment.path] = (attachment, new_thumbnail)
 
             # Replace in box
             idx = 0
@@ -184,4 +185,4 @@ class AttachmentPreviewBar(Gtk.Box):
 
     def get_attachments(self) -> list[PendingAttachment]:
         """Get all current attachments."""
-        return list(self._thumbnails.keys())
+        return [attachment for attachment, _ in self._thumbnails.values()]

@@ -26,7 +26,19 @@
       "Bash(python3:*)",
       "Bash(gh issue view:*)",
       "Bash(NANOCHAT_DEBUG=1 timeout 8 python -m nanochat:*)",
-      "Bash(NANOCHAT_DEBUG=1 timeout 10 python -m nanochat:*)"
+      "Bash(NANOCHAT_DEBUG=1 timeout 10 python -m nanochat:*)",
+      "Bash(git push:*)",
+      "Bash(flatpak-builder:*)",
+      "Bash(flatpak install:*)",
+      "Bash(flatpak list:*)",
+      "Bash(flatpak build-bundle:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr view:*)",
+      "Bash(git pull:*)",
+      "Bash(git branch:*)",
+      "Bash(git tag -a v0.3.0 -m \"Release v0.3.0 - SSE Streaming & Real-time Message Generation\":*)",
+      "Bash(git tag:*)"
     ]
   }
 }
