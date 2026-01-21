@@ -336,12 +336,13 @@ class NanoChatClient:
             except Exception:
                 pass
             # Log the request payload for debugging
-            logger.error(f"Request payload: {json_payload}")
+            logger.error(f"Request payload: {json.dumps(json_payload, indent=2)}")
             logger.error(f"Response status: {e.response.status_code}")
             try:
-                logger.error(f"Response body: {e.response.text}")
-            except Exception:
-                pass
+                response_text = e.response.text
+                logger.error(f"Response body: {response_text}")
+            except Exception as log_error:
+                logger.error(f"Could not read response body: {log_error}")
             raise NanoChatAPIError(error_detail) from e
         except httpx.RemoteProtocolError:
             # Server closed the connection - expected after message_complete
