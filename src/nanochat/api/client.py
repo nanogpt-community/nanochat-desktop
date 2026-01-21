@@ -280,6 +280,15 @@ class NanoChatClient:
                 "/api/generate-message/stream",
                 json=json_payload,
             ) as response:
+                # Check for error response before raising
+                if response.status_code >= 400:
+                    # Try to read the response body for error details
+                    try:
+                        error_content = await response.aread()
+                        logger.error(f"Error response body: {error_content.decode()}")
+                    except Exception as read_err:
+                        logger.error(f"Could not read error response: {read_err}")
+
                 response.raise_for_status()
 
                 # Parse SSE stream - track event type across lines
