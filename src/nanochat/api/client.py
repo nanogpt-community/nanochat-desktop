@@ -267,6 +267,9 @@ class NanoChatClient:
         # Use by_alias=True to properly serialize field aliases (camelCase)
         json_payload = request.model_dump(exclude_none=True, by_alias=True)
 
+        # Debug logging
+        logger.debug(f"Sending request payload: {json.dumps(json_payload, indent=2)}")
+
         try:
             async with self._client.stream(  # type: ignore[union-attr]
                 "POST",
@@ -319,7 +322,24 @@ class NanoChatClient:
                 raise AuthenticationError("Invalid API key") from e
             if e.response.status_code == 429:
                 raise RateLimitError("Rate limit exceeded") from e
-            raise NanoChatAPIError(f"API error: {e.response.status_code}") from e
+            # Try to get more error details from response
+            error_detail = f"API error: {e.response.status_code}"
+            try:
+                error_body = e.response.json()
+                if "error" in error_body:
+                    error_detail = f"API error: {error_body['error']}"
+                elif "message" in error_body:
+                    error_detail = f"API error: {error_body['message']}"
+            except Exception:
+                pass
+            # Log the request payload for debugging
+            logger.error(f"Request payload: {json_payload}")
+            logger.error(f"Response status: {e.response.status_code}")
+            try:
+                logger.error(f"Response body: {e.response.text}")
+            except Exception:
+                pass
+            raise NanoChatAPIError(error_detail) from e
         except httpx.RemoteProtocolError:
             # Server closed the connection - expected after message_complete
             if not received_complete:
