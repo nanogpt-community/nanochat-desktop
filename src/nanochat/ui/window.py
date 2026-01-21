@@ -1497,10 +1497,18 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                                     attachment.mime_type,
                                 )
                                 attachment.storage_id = storage_id
-                                # If file_url is relative, construct full URL
-                                if file_url.startswith('/'):
-                                    file_url = f"{url}{file_url}"
-                                attachment.url = file_url
+                                
+                                # Handle URL construction based on type
+                                if attachment.attachment_type == AttachmentType.IMAGE:
+                                    # Images need full URL for external models (e.g. OpenAI)
+                                    if file_url.startswith('/'):
+                                        file_url = f"{url}{file_url}"
+                                    attachment.url = file_url
+                                else:
+                                    # Documents are processed by backend - try relative URL
+                                    # to avoid potential DNS/loopback issues
+                                    attachment.url = file_url
+                                    
                             except Exception as e:
                                 attachment.upload_error = str(e)
                                 GLib.idle_add(

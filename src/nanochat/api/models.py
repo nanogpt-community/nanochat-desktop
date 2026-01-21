@@ -124,7 +124,7 @@ class ImageAttachment(BaseModel):
 
     url: str
     storage_id: str = Field(alias="storage_id")
-    file_name: Optional[str] = Field(default=None, alias="file_name")
+    file_name: Optional[str] = Field(default=None, alias="fileName")
 
     model_config = {"populate_by_name": True}
 
@@ -134,8 +134,8 @@ class DocumentAttachment(BaseModel):
 
     url: str
     storage_id: str = Field(alias="storage_id")
-    file_name: Optional[str] = Field(default=None, alias="file_name")
-    file_type: str = Field(alias="file_type")  # pdf, markdown, text, epub
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    file_type: str = Field(alias="fileType")  # pdf, markdown, text, epub
 
     model_config = {"populate_by_name": True}
 
