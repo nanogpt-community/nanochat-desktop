@@ -6,10 +6,14 @@ This document describes the Git workflow, branch strategy, and release process f
 
 **ALWAYS update version numbers when creating a new version branch!**
 
-When creating `v0.X.0` branch, immediately update:
-- `pyproject.toml`: `version = "0.X.0"`
-- `src/nanochat/__init__.py`: `__version__ = "0.X.0"`
+The version is stored in a **single source of truth**:
+- `src/nanochat/version.py`: `__version__ = "0.X.0"`
 
+This file is imported by:
+- `src/nanochat/__init__.py` (for package version)
+- Settings dialog "About" page (for display)
+
+When creating `v0.X.0` branch, immediately update `src/nanochat/version.py`.
 This should be your **first commit** on the new branch. See "Starting a New Phase" below for the exact commands.
 
 ---
@@ -105,12 +109,15 @@ git pull origin main
 # Create new version branch from main (or previous version)
 git checkout -b v0.2.0
 
-# IMPORTANT: Update version numbers immediately after creating branch
-# - pyproject.toml: version = "0.2.0"
-# - src/nanochat/__init__.py: __version__ = "0.2.0"
+# IMPORTANT: Update version number immediately after creating branch
+# src/nanochat/version.py: __version__ = "0.2.0"
 # Commit this as your first commit on the new branch
-git add pyproject.toml src/nanochat/__init__.py
+sed -i 's/__version__ = "0\\.[0-9]\\+\\.[0-9]\\+"/__version__ = "0.2.0"/' src/nanochat/version.py
+git add src/nanochat/version.py
 git commit -m "chore: bump version to 0.2.0"
+
+# Verify the change
+grep "__version__" src/nanochat/version.py
 
 # Push to remote
 git push -u origin v0.2.0
@@ -294,15 +301,19 @@ git checkout v0.1.0
 # Verify all changes committed
 git status
 
-# Verify version numbers match branch (e.g., v0.1.0 → 0.1.0)
-grep "version.*=.*0\\.1\\.0" pyproject.toml
-grep "__version__.*=.*0\\.1\\.0" src/nanochat/__init__.py
+# Verify version number matches branch (e.g., v0.1.0 → 0.1.0)
+grep "__version__.*=.*0\\.1\\.0" src/nanochat/version.py
 
-# If versions don't match, update them NOW:
-# sed -i 's/version = "0.0.0"/version = "0.1.0"/' pyproject.toml
-# sed -i 's/__version__ = "0.0.0"/__version__ = "0.1.0"/' src/nanochat/__init__.py
-# git add pyproject.toml src/nanochat/__init__.py
+# If version doesn't match, update it NOW:
+# sed -i 's/__version__ = "0\\.[0-9]\\+\\.[0-9]\\+"/__version__ = "0.1.0"/' src/nanochat/version.py
+# git add src/nanochat/version.py
 # git commit -m "chore: bump version to 0.1.0"
+
+# Verify version is accessible from __init__.py
+python -c "from nanochat import __version__; print(__version__)"
+
+# Run the app and verify version appears in Settings > About
+python -m nanochat
 
 # Verify tests pass (if any)
 python -m pytest

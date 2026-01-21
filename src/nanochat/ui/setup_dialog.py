@@ -9,10 +9,11 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
 from typing import Callable, Optional
-from gi.repository import Gtk, Adw, GLib
+from gi.repository import Gtk, Adw, GLib, Gdk
 
 from nanochat.data.settings import SettingsManager
 from nanochat.data.secrets import SecretsManager
+from nanochat import version
 
 
 class SetupDialog(Adw.PreferencesWindow):  # type: ignore[misc]
@@ -110,6 +111,70 @@ class SetupDialog(Adw.PreferencesWindow):  # type: ignore[misc]
         self.theme_row.connect("notify::selected", self._on_theme_changed)
 
         appearance_group.add(self.theme_row)
+
+        # About page
+        about_page = Adw.PreferencesPage()
+        about_page.set_title("About")
+        about_page.set_icon_name("help-about-symbolic")
+        self.add(about_page)
+
+        # Version group
+        version_group = Adw.PreferencesGroup()
+        version_group.set_title("Version Information")
+        about_page.add(version_group)
+
+        # App name and version
+        version_row = Adw.ActionRow()
+        version_row.set_title("Version")
+        version_row.set_subtitle(version.__version__)
+        version_row.set_icon_name("starred-symbolic")
+        version_group.add(version_row)
+
+        # App name
+        name_row = Adw.ActionRow()
+        name_row.set_title("Application")
+        name_row.set_subtitle(version.APP_NAME)
+        version_group.add(name_row)
+
+        # Links group
+        links_group = Adw.PreferencesGroup()
+        links_group.set_title("Links")
+        about_page.add(links_group)
+
+        # GitHub repository
+        github_row = Adw.ActionRow()
+        github_row.set_title("GitHub Repository")
+        github_row.set_subtitle("Source code and issues")
+        github_row.set_icon_name("web-browser-symbolic")
+        github_row.set_activatable(True)
+        github_row.connect("activated", self._on_github_clicked)
+        links_group.add(github_row)
+
+        # Bug reports
+        issues_row = Adw.ActionRow()
+        issues_row.set_title("Report Issues")
+        issues_row.set_subtitle("Bug reports and feature requests")
+        issues_row.set_icon_name("emblem-important-symbolic")
+        issues_row.set_activatable(True)
+        issues_row.connect("activated", self._on_issues_clicked)
+        links_group.add(issues_row)
+
+        # Info group
+        info_group = Adw.PreferencesGroup()
+        info_group.set_title("Info")
+        about_page.add(info_group)
+
+        # Developer
+        developer_row = Adw.ActionRow()
+        developer_row.set_title("Developer")
+        developer_row.set_subtitle(version.DEVELOPER_NAME)
+        info_group.add(developer_row)
+
+        # Copyright
+        copyright_row = Adw.ActionRow()
+        copyright_row.set_title("Copyright")
+        copyright_row.set_subtitle(version.COPYRIGHT)
+        info_group.add(copyright_row)
 
         # Save button in header
         save_btn = Gtk.Button(label="Save")
@@ -227,3 +292,53 @@ class SetupDialog(Adw.PreferencesWindow):  # type: ignore[misc]
         # Call callback if settings were saved
         if saved and self._on_saved:
             self._on_saved()
+
+    def _on_github_clicked(self, row: Adw.ActionRow) -> None:
+        """Handle GitHub repository link click."""
+        try:
+            Gtk.show_uri(None, version.GITHUB_URL, Gdk.CURRENT_TIME)
+        except Exception as e:
+            # Fallback: show URL in a dialog
+            dialog = Adw.MessageDialog(
+                transient_for=self,
+                heading="GitHub Repository",
+                body=version.GITHUB_URL,
+            )
+            dialog.add_response("copy", "Copy URL")
+            dialog.add_response("close", "Close")
+            dialog.set_default_response("copy")
+            dialog.set_close_response("close")
+
+            def copy_url(response: str, dialog: Adw.MessageDialog) -> None:
+                if response == "copy":
+                    clipboard = Gdk.Display.get_default().get_clipboard()
+                    clipboard.set(version.GITHUB_URL)
+                dialog.destroy()
+
+            dialog.connect("response", copy_url)
+            dialog.present()
+
+    def _on_issues_clicked(self, row: Adw.ActionRow) -> None:
+        """Handle issues link click."""
+        try:
+            Gtk.show_uri(None, version.ISSUES_URL, Gdk.CURRENT_TIME)
+        except Exception as e:
+            # Fallback: show URL in a dialog
+            dialog = Adw.MessageDialog(
+                transient_for=self,
+                heading="Report Issues",
+                body=version.ISSUES_URL,
+            )
+            dialog.add_response("copy", "Copy URL")
+            dialog.add_response("close", "Close")
+            dialog.set_default_response("copy")
+            dialog.set_close_response("close")
+
+            def copy_url(response: str, dialog: Adw.MessageDialog) -> None:
+                if response == "copy":
+                    clipboard = Gdk.Display.get_default().get_clipboard()
+                    clipboard.set(version.ISSUES_URL)
+                dialog.destroy()
+
+            dialog.connect("response", copy_url)
+            dialog.present()
