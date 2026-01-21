@@ -123,8 +123,8 @@ class ImageAttachment(BaseModel):
     """Image attachment for message generation."""
 
     url: str
-    storage_id: str = Field(alias="storageId")
-    file_name: Optional[str] = Field(default=None, alias="fileName")
+    storage_id: str = Field(alias="storage_id")
+    file_name: Optional[str] = Field(default=None, alias="file_name")
 
     model_config = {"populate_by_name": True}
 
@@ -133,9 +133,9 @@ class DocumentAttachment(BaseModel):
     """Document attachment for message generation."""
 
     url: str
-    storage_id: str = Field(alias="storageId")
-    file_name: Optional[str] = Field(default=None, alias="fileName")
-    file_type: str = Field(alias="fileType")  # pdf, markdown, text, epub
+    storage_id: str = Field(alias="storage_id")
+    file_name: Optional[str] = Field(default=None, alias="file_name")
+    file_type: str = Field(alias="file_type")  # pdf, markdown, text, epub
 
     model_config = {"populate_by_name": True}
 
@@ -144,14 +144,14 @@ class GenerateMessageRequest(BaseModel):
     """Request to generate a message."""
 
     message: Optional[str] = None
-    model_id: str = Field(alias="modelId")
-    assistant_id: Optional[str] = Field(default=None, alias="assistantId")
-    project_id: Optional[str] = Field(default=None, alias="projectId")
-    conversation_id: Optional[str] = Field(default=None, alias="conversationId")
-    web_search_enabled: Optional[bool] = Field(default=None, alias="webSearchEnabled")
-    web_search_mode: Optional[str] = Field(default=None, alias="webSearchMode")
-    web_search_provider: Optional[str] = Field(default=None, alias="webSearchProvider")
-    reasoning_effort: Optional[str] = Field(default=None, alias="reasoningEffort")
+    model_id: str = Field(alias="model_id")
+    assistant_id: Optional[str] = Field(default=None, alias="assistant_id")
+    project_id: Optional[str] = Field(default=None, alias="project_id")
+    conversation_id: Optional[str] = Field(default=None, alias="conversation_id")
+    web_search_enabled: Optional[bool] = Field(default=None, alias="web_search_enabled")
+    web_search_mode: Optional[str] = Field(default=None, alias="web_search_mode")
+    web_search_provider: Optional[str] = Field(default=None, alias="web_search_provider")
+    reasoning_effort: Optional[str] = Field(default=None, alias="reasoning_effort")
     temporary: Optional[bool] = None
     # File attachments
     images: Optional[list[ImageAttachment]] = None
