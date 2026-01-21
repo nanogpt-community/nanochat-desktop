@@ -9,7 +9,8 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gdk, GLib, Gtk
+from pathlib import Path
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from nanochat.api.models import Assistant, Conversation, Message, Model
 from nanochat.data.database import Database
@@ -17,6 +18,15 @@ from nanochat.data.secrets import SecretsManager
 from nanochat.data.settings import SettingsManager
 from nanochat.ui.message_widget import MessageWidget
 from nanochat.ui.models_dialog import ModelsDialog
+from nanochat.ui.attachments import (
+    AttachmentType,
+    PendingAttachment,
+    create_pending_attachment,
+    validate_attachment,
+    IMAGE_EXTENSIONS,
+    DOCUMENT_EXTENSIONS,
+)
+from nanochat.ui.attachment_preview import AttachmentPreviewBar
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +73,11 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self._assistants: list[Assistant] = []
         self._assistant_ids: list[str] = []
         self._current_assistant_id: str | None = None
+
+        # Attachment state
+        self._pending_attachments: list[PendingAttachment] = []
+        self._attachment_preview_bar: AttachmentPreviewBar | None = None
+        self._is_uploading: bool = False
 
         self.set_default_size(1200, 800)
         self.set_title("NanoChat")
@@ -235,12 +250,33 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         return page
 
     def _create_input_area(self) -> Gtk.Box:
-        """Create message input area with web search toggle."""
+        """Create message input area with attachments and web search toggle."""
+        # Outer container for preview bar + input
+        outer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
+        # Attachment preview bar (hidden by default)
+        self._attachment_preview_bar = AttachmentPreviewBar(
+            on_remove=self._on_attachment_remove
+        )
+        outer_box.append(self._attachment_preview_bar)
+
+        # Input row
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         box.set_margin_start(12)
         box.set_margin_end(12)
         box.set_margin_bottom(12)
         box.add_css_class("chat-input-box")
+
+        # Set up drop target for the input area
+        self._setup_drop_target(box)
+
+        # Attach button
+        self.attach_btn = Gtk.Button(icon_name="mail-attachment-symbolic")
+        self.attach_btn.set_tooltip_text("Attach files (images, PDFs, etc.)")
+        self.attach_btn.add_css_class("flat")
+        self.attach_btn.add_css_class("attach-button")
+        self.attach_btn.connect("clicked", self._on_attach_clicked)
+        box.append(self.attach_btn)
 
         # Web search toggle button
         self.web_search_btn = Gtk.ToggleButton()
@@ -295,10 +331,12 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self.send_btn.connect("clicked", self._on_send)
         box.append(self.send_btn)
 
+        outer_box.append(box)
+
         # Load saved web search preferences
         self._load_web_search_settings()
 
-        return box
+        return outer_box
 
     def _setup_keyboard_shortcuts(self) -> None:
         """Set up keyboard event handling for window-level shortcuts."""
@@ -1206,6 +1244,134 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             self.settings_manager.settings.chat.web_search.provider = self._web_search_provider
             self.settings_manager.save()
 
+    # ========== Drag and Drop Support ==========
+
+    def _setup_drop_target(self, widget: Gtk.Widget) -> None:
+        """Set up drag and drop target for file attachments."""
+        drop_target = Gtk.DropTarget.new(Gio.File, Gdk.DragAction.COPY)
+        drop_target.connect("enter", self._on_drop_enter)
+        drop_target.connect("leave", self._on_drop_leave)
+        drop_target.connect("drop", self._on_file_dropped)
+        widget.add_controller(drop_target)
+
+    def _on_drop_enter(
+        self,
+        drop_target: Gtk.DropTarget,
+        x: float,
+        y: float,
+    ) -> Gdk.DragAction:
+        """Handle drag enter event."""
+        widget = drop_target.get_widget()
+        widget.add_css_class("drop-target-active")
+        return Gdk.DragAction.COPY
+
+    def _on_drop_leave(self, drop_target: Gtk.DropTarget) -> None:
+        """Handle drag leave event."""
+        widget = drop_target.get_widget()
+        widget.remove_css_class("drop-target-active")
+
+    def _on_file_dropped(
+        self,
+        drop_target: Gtk.DropTarget,
+        value: Gio.File,
+        x: float,
+        y: float,
+    ) -> bool:
+        """Handle file dropped on input area."""
+        widget = drop_target.get_widget()
+        widget.remove_css_class("drop-target-active")
+
+        file_path = Path(value.get_path())
+        self._attach_file(file_path)
+        return True
+
+    # ========== Attachment Handling ==========
+
+    def _on_attach_clicked(self, button: Gtk.Button) -> None:
+        """Handle attach button click - open file chooser."""
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Attach Files")
+
+        # Create filter for supported file types
+        all_filter = Gtk.FileFilter()
+        all_filter.set_name("All Supported Files")
+        for ext in IMAGE_EXTENSIONS | DOCUMENT_EXTENSIONS:
+            all_filter.add_suffix(ext.lstrip("."))
+
+        image_filter = Gtk.FileFilter()
+        image_filter.set_name("Images")
+        for ext in IMAGE_EXTENSIONS:
+            image_filter.add_suffix(ext.lstrip("."))
+
+        doc_filter = Gtk.FileFilter()
+        doc_filter.set_name("Documents")
+        for ext in DOCUMENT_EXTENSIONS:
+            doc_filter.add_suffix(ext.lstrip("."))
+
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(all_filter)
+        filters.append(image_filter)
+        filters.append(doc_filter)
+        dialog.set_filters(filters)
+        dialog.set_default_filter(all_filter)
+
+        dialog.open_multiple(self, None, self._on_files_selected)
+
+    def _on_files_selected(
+        self,
+        dialog: Gtk.FileDialog,
+        result: Gio.AsyncResult,
+    ) -> None:
+        """Handle files selected from file chooser."""
+        try:
+            files = dialog.open_multiple_finish(result)
+            for i in range(files.get_n_items()):
+                gfile = files.get_item(i)
+                file_path = Path(gfile.get_path())
+                self._attach_file(file_path)
+        except GLib.Error as e:
+            if e.code != Gtk.DialogError.DISMISSED:
+                self.toast_overlay.add_toast(Adw.Toast(title=f"Failed to select files: {e.message}"))
+
+    def _attach_file(self, path: Path) -> None:
+        """Attach a file to the pending message."""
+        # Validate the file
+        is_valid, error = validate_attachment(path)
+        if not is_valid:
+            self.toast_overlay.add_toast(Adw.Toast(title=f"Cannot attach: {error}"))
+            return
+
+        # Create pending attachment
+        attachment = create_pending_attachment(path)
+        if attachment is None:
+            self.toast_overlay.add_toast(Adw.Toast(title="Unsupported file type"))
+            return
+
+        # Check for duplicates
+        for existing in self._pending_attachments:
+            if existing.path == path:
+                self.toast_overlay.add_toast(Adw.Toast(title="File already attached"))
+                return
+
+        # Add to pending list and UI
+        self._pending_attachments.append(attachment)
+        self._attachment_preview_bar.add_attachment(attachment)
+
+        # Show toast
+        type_label = "image" if attachment.attachment_type == AttachmentType.IMAGE else "document"
+        self.toast_overlay.add_toast(Adw.Toast(title=f"Attached {type_label}: {attachment.filename}"))
+
+    def _on_attachment_remove(self, attachment: PendingAttachment) -> None:
+        """Handle removal of an attachment."""
+        if attachment in self._pending_attachments:
+            self._pending_attachments.remove(attachment)
+        self._attachment_preview_bar.remove_attachment(attachment)
+
+    def _clear_attachments(self) -> None:
+        """Clear all pending attachments."""
+        self._pending_attachments.clear()
+        self._attachment_preview_bar.clear()
+
     def _on_web_search_toggled(self, button: Gtk.ToggleButton) -> None:
         """Handle web search toggle button."""
         self._web_search_enabled = button.get_active()
@@ -1267,7 +1433,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             return
 
         text = self.message_entry.get_text().strip()
-        if not text:
+
+        # Must have text or attachments
+        if not text and not self._pending_attachments:
             return
 
         # Get selected model
@@ -1277,87 +1445,157 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         model_id = self._model_ids[selected_idx]
 
-        # Add user message to UI
-        user_widget = MessageWidget(role="user", content=text)
+        # Add user message to UI (with attachment indicator if any)
+        display_text = text
+        if self._pending_attachments:
+            attachment_count = len(self._pending_attachments)
+            attachment_label = "attachment" if attachment_count == 1 else "attachments"
+            if text:
+                display_text = f"{text}\n\n📎 {attachment_count} {attachment_label}"
+            else:
+                display_text = f"📎 {attachment_count} {attachment_label}"
+
+        user_widget = MessageWidget(role="user", content=display_text)
         self.messages_list.append(user_widget)
 
         # Clear input and disable
         self.message_entry.set_text("")
         self._set_sending_state(True)
 
-        # Start SSE streaming
+        # Capture attachments before clearing
+        attachments_to_send = list(self._pending_attachments)
+        self._clear_attachments()
+
+        # Start upload and streaming in background
         url = self.settings_manager.settings.server.backend_url
         key = self.secrets_manager.get_api_key()
 
         def stream_response() -> None:
+            import asyncio
+
             from nanochat.api.client import NanoChatClient
-            from nanochat.api.models import GenerateMessageRequest
+            from nanochat.api.models import (
+                GenerateMessageRequest,
+                ImageAttachment,
+                DocumentAttachment,
+            )
 
-            # Mutable state for accumulating content
-            state = {"accumulated_content": "", "conversation_id": None}
+            async def do_upload_and_stream() -> None:
+                # Upload attachments first
+                if attachments_to_send:
+                    GLib.idle_add(
+                        lambda: self.toast_overlay.add_toast(
+                            Adw.Toast(title="Uploading attachments...")
+                        )
+                    )
 
-            def on_event(event_type: str, event_data: dict) -> None:
-                """Handle SSE events from the stream."""
-                if event_type == "message_start":
-                    # Set conversation ID from message_start event
-                    conv_id = event_data.get("conversation_id")
-                    if conv_id:
-                        state["conversation_id"] = conv_id
-                        GLib.idle_add(self._set_conversation_id, conv_id)
+                    async with NanoChatClient(url, key) as client:
+                        for attachment in attachments_to_send:
+                            if attachment.is_uploaded:
+                                continue
+                            try:
+                                content = attachment.path.read_bytes()
+                                storage_id, file_url = await client.upload_file(
+                                    content,
+                                    attachment.filename,
+                                    attachment.mime_type,
+                                )
+                                attachment.storage_id = storage_id
+                                attachment.url = file_url
+                            except Exception as e:
+                                attachment.upload_error = str(e)
+                                GLib.idle_add(
+                                    self._show_error,
+                                    f"Failed to upload {attachment.filename}: {e}"
+                                )
 
-                elif event_type == "delta":
-                    # Accumulate content and update UI
-                    delta_content = event_data.get("content", "")
-                    state["accumulated_content"] += delta_content
-                    GLib.idle_add(self._update_assistant_message, state["accumulated_content"])
+                # Build attachment lists
+                images = []
+                documents = []
 
-                elif event_type == "message_complete":
-                    # Generation complete - refresh title only if it's a new chat
-                    conv_id = state.get("conversation_id")
-                    if conv_id:
-                        def schedule_title_refresh() -> bool:
-                            """Schedule title refresh on main thread."""
-                            def do_refresh() -> bool:
-                                self._refresh_conversation_title(conv_id)
-                                return False  # Don't repeat
-                            # Schedule refresh after 1 second delay
-                            GLib.timeout_add(1000, do_refresh)
-                            return False  # Don't repeat idle_add
-                        # Use idle_add first to get to main thread, then timeout_add
-                        GLib.idle_add(schedule_title_refresh)
+                for attachment in attachments_to_send:
+                    if not attachment.is_uploaded:
+                        continue
 
-                elif event_type == "error":
-                    # Handle error event
-                    error_msg = event_data.get("error", "Unknown error")
-                    GLib.idle_add(self._show_error, error_msg)
+                    if attachment.attachment_type == AttachmentType.IMAGE:
+                        images.append(ImageAttachment(
+                            url=attachment.url,
+                            storage_id=attachment.storage_id,
+                            file_name=attachment.filename,
+                        ))
+                    else:
+                        documents.append(DocumentAttachment(
+                            url=attachment.url,
+                            storage_id=attachment.storage_id,
+                            file_name=attachment.filename,
+                            file_type=attachment.document_type.value if attachment.document_type else "text",
+                        ))
 
-            async def do_stream() -> None:
-                # Build request with optional parameters
+                # Mutable state for accumulating content
+                state = {"accumulated_content": "", "conversation_id": None}
+
+                def on_event(event_type: str, event_data: dict) -> None:
+                    """Handle SSE events from the stream."""
+                    if event_type == "message_start":
+                        # Set conversation ID from message_start event
+                        conv_id = event_data.get("conversation_id")
+                        if conv_id:
+                            state["conversation_id"] = conv_id
+                            GLib.idle_add(self._set_conversation_id, conv_id)
+
+                    elif event_type == "delta":
+                        # Accumulate content and update UI
+                        delta_content = event_data.get("content", "")
+                        state["accumulated_content"] += delta_content
+                        GLib.idle_add(self._update_assistant_message, state["accumulated_content"])
+
+                    elif event_type == "message_complete":
+                        # Generation complete - refresh title only if it's a new chat
+                        conv_id = state.get("conversation_id")
+                        if conv_id:
+                            def schedule_title_refresh() -> bool:
+                                """Schedule title refresh on main thread."""
+                                def do_refresh() -> bool:
+                                    self._refresh_conversation_title(conv_id)
+                                    return False  # Don't repeat
+                                # Schedule refresh after 1 second delay
+                                GLib.timeout_add(1000, do_refresh)
+                                return False  # Don't repeat idle_add
+                            # Use idle_add first to get to main thread, then timeout_add
+                            GLib.idle_add(schedule_title_refresh)
+
+                    elif event_type == "error":
+                        # Handle error event
+                        error_msg = event_data.get("error", "Unknown error")
+                        GLib.idle_add(self._show_error, error_msg)
+
+                # Build request
                 request_kwargs = {
-                    "message": text,
+                    "message": text if text else None,
                     "model_id": model_id,
                     "conversation_id": self._current_conversation_id,
                 }
 
-                # Add assistant if selected
                 if self._current_assistant_id:
                     request_kwargs["assistant_id"] = self._current_assistant_id
 
-                # Add web search parameters if enabled
                 if self._web_search_enabled and self._web_search_mode != "off":
                     request_kwargs["web_search_enabled"] = True
                     request_kwargs["web_search_mode"] = self._web_search_mode
                     request_kwargs["web_search_provider"] = self._web_search_provider
+
+                if images:
+                    request_kwargs["images"] = images
+                if documents:
+                    request_kwargs["documents"] = documents
 
                 request = GenerateMessageRequest(**request_kwargs)
 
                 try:
                     async with NanoChatClient(url, key) as client:
                         await client.stream_generate_message(request, on_event)
-
                 except Exception as e:
                     import traceback
-
                     traceback.print_exc()
                     GLib.idle_add(self._show_error, str(e))
                 finally:
@@ -1366,7 +1604,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                loop.run_until_complete(do_stream())
+                loop.run_until_complete(do_upload_and_stream())
                 loop.close()
             except Exception as e:
                 GLib.idle_add(self._show_error, str(e))
@@ -1510,6 +1748,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             next_child = child.get_next_sibling()
             self.messages_list.remove(child)
             child = next_child
+
+        # Clear attachments
+        self._clear_attachments()
 
         # Clear selection in list
         self.conversation_list.unselect_all()

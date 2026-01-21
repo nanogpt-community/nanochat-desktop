@@ -12,6 +12,8 @@ from .models import (
     CreateAssistantRequest,
     UpdateAssistantRequest,
     GenerateMessageRequest,
+    ImageAttachment,
+    DocumentAttachment,
     SSEMessageStart,
     SSEDelta,
     SSEMessageComplete,
@@ -177,6 +179,63 @@ class NanoChatClient:
             await self.get_models()
             return True
         except NanoChatAPIError:
+            return False
+
+    # File storage
+    async def upload_file(
+        self,
+        content: bytes,
+        filename: str,
+        mime_type: str,
+    ) -> tuple[str, str]:
+        """Upload a file to storage.
+
+        Args:
+            content: Binary file content
+            filename: Original filename
+            mime_type: MIME type of the file
+
+        Returns:
+            Tuple of (storage_id, url)
+
+        Raises:
+            NanoChatAPIError: If upload fails
+        """
+        if not self._client:
+            raise NanoChatAPIError("Client not initialized")
+
+        try:
+            response = await self._client.post(
+                "/api/storage",
+                content=content,
+                headers={
+                    "Content-Type": mime_type,
+                    "x-filename": filename,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["storageId"], data["url"]
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                raise AuthenticationError("Invalid API key") from e
+            raise NanoChatAPIError(f"Upload failed: {e.response.status_code}") from e
+        except httpx.NetworkError as e:
+            raise APIConnectionError("Cannot connect to server") from e
+
+    async def delete_file(self, storage_id: str) -> bool:
+        """Delete a file from storage.
+
+        Args:
+            storage_id: The storage ID to delete
+
+        Returns:
+            True if deleted successfully
+        """
+        try:
+            await self._request("DELETE", "/api/storage", params={"id": storage_id})
+            return True
+        except Exception:
             return False
 
     # Streaming message generation

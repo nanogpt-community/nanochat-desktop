@@ -119,6 +119,27 @@ class UpdateAssistantRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ImageAttachment(BaseModel):
+    """Image attachment for message generation."""
+
+    url: str
+    storage_id: str = Field(alias="storage_id")
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+
+    model_config = {"populate_by_name": True}
+
+
+class DocumentAttachment(BaseModel):
+    """Document attachment for message generation."""
+
+    url: str
+    storage_id: str = Field(alias="storage_id")
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    file_type: str = Field(alias="fileType")  # pdf, markdown, text, epub
+
+    model_config = {"populate_by_name": True}
+
+
 class GenerateMessageRequest(BaseModel):
     """Request to generate a message."""
 
@@ -132,6 +153,9 @@ class GenerateMessageRequest(BaseModel):
     web_search_provider: Optional[str] = None
     reasoning_effort: Optional[str] = Field(default=None, alias="reasoningEffort")
     temporary: Optional[bool] = None
+    # File attachments
+    images: Optional[list[ImageAttachment]] = None
+    documents: Optional[list[DocumentAttachment]] = None
 
     model_config = {"populate_by_name": True}
 

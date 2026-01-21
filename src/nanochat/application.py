@@ -395,6 +395,69 @@ scrolledwindow scrollbar slider:hover {
 .message-widget:hover .message-copy-btn {
     opacity: 1;
 }
+
+/* ========== Attachment Preview Bar ========== */
+
+.attachment-preview-bar {
+    background-color: alpha(@card_bg_color, 0.5);
+    border-radius: 8px 8px 0 0;
+    padding: 8px;
+    border-bottom: 1px solid alpha(@borders, 0.3);
+}
+
+/* Attachment Thumbnail */
+.attachment-thumbnail {
+    background-color: @card_bg_color;
+    border-radius: 6px;
+    padding: 4px;
+}
+
+.attachment-thumbnail:hover {
+    background-color: alpha(@accent_bg_color, 0.1);
+}
+
+.attachment-thumbnail.upload-error {
+    background-color: alpha(@error_bg_color, 0.2);
+}
+
+.attachment-frame {
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.attachment-image {
+    min-width: 64px;
+    min-height: 64px;
+}
+
+.attachment-remove-btn {
+    margin: 2px;
+    padding: 2px;
+    min-width: 20px;
+    min-height: 20px;
+    background-color: alpha(@window_bg_color, 0.8);
+}
+
+.attachment-remove-btn:hover {
+    background-color: @error_bg_color;
+    color: @error_fg_color;
+}
+
+/* Attach Button */
+.attach-button {
+    padding: 8px;
+}
+
+.attach-button:hover {
+    background-color: alpha(@accent_bg_color, 0.1);
+}
+
+/* Drop target highlight */
+.drop-target-active {
+    background-color: alpha(@accent_bg_color, 0.15);
+    border: 2px dashed @accent_bg_color;
+    border-radius: 8px;
+}
 """
 
         style_provider = Gtk.CssProvider()
