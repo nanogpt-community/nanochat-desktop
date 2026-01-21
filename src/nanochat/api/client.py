@@ -2,10 +2,7 @@
 
 import httpx
 import json
-import logging
 from typing import Callable, Optional
-
-logger = logging.getLogger(__name__)
 
 from .models import (
     Conversation,
@@ -218,7 +215,6 @@ class NanoChatClient:
             )
             response.raise_for_status()
             data = response.json()
-            logger.debug(f"Upload response: {data}")
             return data["storageId"], data["url"]
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
@@ -271,24 +267,12 @@ class NanoChatClient:
         # Use by_alias=True to properly serialize field aliases (camelCase)
         json_payload = request.model_dump(exclude_none=True, by_alias=True)
 
-        # Debug logging
-        logger.debug(f"Sending request payload: {json.dumps(json_payload, indent=2)}")
-
         try:
             async with self._client.stream(  # type: ignore[union-attr]
                 "POST",
                 "/api/generate-message/stream",
                 json=json_payload,
             ) as response:
-                # Check for error response before raising
-                if response.status_code >= 400:
-                    # Try to read the response body for error details
-                    try:
-                        error_content = await response.aread()
-                        logger.error(f"Error response body: {error_content.decode()}")
-                    except Exception as read_err:
-                        logger.error(f"Could not read error response: {read_err}")
-
                 response.raise_for_status()
 
                 # Parse SSE stream - track event type across lines
@@ -335,25 +319,7 @@ class NanoChatClient:
                 raise AuthenticationError("Invalid API key") from e
             if e.response.status_code == 429:
                 raise RateLimitError("Rate limit exceeded") from e
-            # Try to get more error details from response
-            error_detail = f"API error: {e.response.status_code}"
-            try:
-                error_body = e.response.json()
-                if "error" in error_body:
-                    error_detail = f"API error: {error_body['error']}"
-                elif "message" in error_body:
-                    error_detail = f"API error: {error_body['message']}"
-            except Exception:
-                pass
-            # Log the request payload for debugging
-            logger.error(f"Request payload: {json.dumps(json_payload, indent=2)}")
-            logger.error(f"Response status: {e.response.status_code}")
-            try:
-                response_text = e.response.text
-                logger.error(f"Response body: {response_text}")
-            except Exception as log_error:
-                logger.error(f"Could not read response body: {log_error}")
-            raise NanoChatAPIError(error_detail) from e
+            raise NanoChatAPIError(f"API error: {e.response.status_code}") from e
         except httpx.RemoteProtocolError:
             # Server closed the connection - expected after message_complete
             if not received_complete:
