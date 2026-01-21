@@ -363,6 +363,60 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
   - [x] Copies raw markdown, not rendered HTML
   - [x] Button styling matches app theme
 
+### ✅ File Attachments (Drag and Drop, Images, Documents)
+- **Completed**: 2026-01-21
+- **Source**: Pending Tasks, CRITICAL and MEDIUM Priority
+- **Description**: Comprehensive file attachment support with drag and drop, file picker, and upload to storage API
+- **Files**:
+  - `src/nanochat/ui/attachments.py` (new - attachment data classes and utilities)
+  - `src/nanochat/ui/attachment_preview.py` (new - attachment preview bar widget)
+  - `src/nanochat/api/client.py` (modified - added upload_file() and delete_file() methods)
+  - `src/nanochat/api/models.py` (modified - added ImageAttachment, DocumentAttachment models)
+  - `src/nanochat/ui/window.py` (modified - added attachment support, drag-drop, file chooser)
+  - `src/nanochat/application.py` (modified - added CSS styles for attachments)
+- **Features Implemented**:
+  - Attach button in input area opens file chooser dialog
+  - Drag and drop files directly onto chat input area
+  - Support for images: png, jpg, jpeg, gif, webp, svg (max 20MB)
+  - Support for documents: pdf, markdown, txt, epub (max 50MB)
+  - Attachment preview bar with thumbnails and remove buttons
+  - File validation (type and size limits)
+  - Duplicate file detection
+  - Upload progress indication with toast notifications
+  - Attachments sent with message via API
+  - Message shows attachment count indicator (e.g., "📎 2 attachments")
+  - New conversation clears pending attachments
+- **Implementation Details**:
+  - `PendingAttachment` dataclass tracks upload state
+  - `AttachmentThumbnail` widget shows preview with remove button
+  - `AttachmentPreviewBar` widget manages multiple attachments
+  - Drag and drop with Gtk.DropTarget for Gio.File
+  - File chooser with filters for images and documents
+  - Upload to `/api/storage` endpoint with Content-Type and x-filename headers
+  - Include images/documents arrays in generate-message requests
+  - Background upload with async/await in separate thread
+- **API Integration**:
+  - POST /api/storage with binary content, Content-Type, and x-filename headers
+  - Response: {"storageId": "string", "url": "string"}
+  - GenerateMessageRequest includes optional images and documents arrays
+- **Acceptance Criteria**:
+  - [x] Attach button opens file chooser with filters
+  - [x] File chooser filters show correctly (All, Images, Documents)
+  - [x] Selecting files adds thumbnails to preview bar
+  - [x] Image thumbnails show actual image preview
+  - [x] Document thumbnails show appropriate icon
+  - [x] Remove button removes attachment from preview
+  - [x] Drag and drop files onto input area adds attachments
+  - [x] Drop zone highlights when dragging over
+  - [x] Invalid files show error toast
+  - [x] Duplicate files show warning toast
+  - [x] Sending with attachments uploads files first
+  - [x] Upload errors display in UI
+  - [x] Message shows attachment indicator
+  - [x] Attachments are included in API request
+  - [x] New conversation clears pending attachments
+  - [x] Large files are rejected with appropriate message
+
 ---
 
 ## Completed Bug Fixes & Improvements

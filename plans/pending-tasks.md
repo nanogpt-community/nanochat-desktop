@@ -39,28 +39,6 @@ Allow users to rename conversations from the context menu.
 
 ---
 
-### [ ] Drag and Drop Attachments
-**Source**: Future Enhancements, High Priority
-
-Allow users to drag files directly into chat input area.
-
-**Implementation:**
-```python
-def _setup_drop_target(self):
-    drop_target = Gtk.DropTarget.new(Gio.File, Gdk.DragAction.COPY)
-    drop_target.connect("drop", self._on_file_dropped)
-    self.add_controller(drop_target)
-
-def _on_file_dropped(self, target, value, x, y):
-    file = value
-    path = Path(file.get_path())
-    self._attach_file(path)
-```
-
-**Files**: `src/nanochat/ui/window.py`
-
----
-
 ### [ ] Message Regeneration
 **Source**: Future Enhancements, Medium Priority
 
@@ -366,36 +344,6 @@ Response:
 ## MEDIUM Priority (Power User Features)
 
 These features add advanced functionality for power users.
-
-### [ ] Image Attachments
-**Source**: Phase 4, Task 4.3
-
-Allow attaching images to messages.
-
-**Implementation:**
-- Attach button in input area
-- File chooser dialog (image filter)
-- Upload to `/api/storage` endpoint
-- Thumbnail preview with remove button
-- Attachment sent with message
-
-**Files**: `src/nanochat/ui/window.py`, `src/nanochat/api/client.py`
-
----
-
-### [ ] Document Attachments
-**Source**: Phase 4, Task 4.4
-
-Support PDF and document attachments.
-
-**Implementation:**
-- Extend file chooser for documents (PDF, markdown, text, epub)
-- Document icon preview instead of thumbnail
-- File type sent correctly in request
-
-**Files**: `src/nanochat/ui/window.py`
-
----
 
 ### [ ] Starred Messages
 **Source**: Phase 4, Task 4.5
@@ -976,10 +924,10 @@ Allow app to minimize to system tray.
 
 ## Summary Statistics
 
-- **Total Pending Tasks**: 57
-- **Critical Priority**: 3 (Keyboard Shortcuts, Conversation Search, and Message Copy Button completed 2025-01-18/2026-01-21)
+- **Total Pending Tasks**: 54
+- **Critical Priority**: 2 (Keyboard Shortcuts, Conversation Search, Message Copy Button, Drag and Drop Attachments, Image Attachments, Document Attachments completed 2025-01-18/2026-01-21)
 - **High Priority**: 15
-- **Medium Priority**: 15
+- **Medium Priority**: 12 (3 attachment-related tasks completed)
 - **Lower Priority**: 22
 - **Experimental**: 4
 - **Optional**: 1
