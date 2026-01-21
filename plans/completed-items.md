@@ -331,6 +331,38 @@ This document tracks all completed work on NanoChat Desktop. When tasks from `pe
   - [x] Star has appropriate tooltip text
   - [x] Visual distinction (background color) for favorites in dialog
 
+### ✅ Message Copy Button
+- **Completed**: 2026-01-21
+- **Source**: Pending Tasks, CRITICAL Priority
+- **Description**: Copy button on message widgets that appears on hover
+- **Files**:
+  - `src/nanochat/ui/message_widget.py` (modified - added copy button and handlers)
+  - `src/nanochat/application.py` (modified - added CSS styles)
+- **Features Implemented**:
+  - Copy button appears on right side of message header when hovering
+  - Copies raw message content (not rendered markdown) to clipboard
+  - Visual feedback: icon changes to checkmark temporarily
+  - Tooltip changes to "Copied!" after copying
+  - Toast notification confirms action
+  - Icon resets after 1.5 seconds
+  - Works for both user and assistant messages
+- **Implementation Details**:
+  - Header row with role label and copy button
+  - Mouse enter/leave handlers for hover behavior
+  - CSS opacity transition for smooth appearance
+  - Clipboard integration via Gdk.Display
+  - Toast overlay detection via widget tree traversal
+- **Acceptance Criteria**:
+  - [x] Copy button appears on message hover
+  - [x] Copy button hidden when not hovering
+  - [x] Clicking copies raw content to clipboard
+  - [x] Icon changes to checkmark after copy
+  - [x] Icon resets after 1.5 seconds
+  - [x] Toast notification appears
+  - [x] Works for both user and assistant messages
+  - [x] Copies raw markdown, not rendered HTML
+  - [x] Button styling matches app theme
+
 ---
 
 ## Completed Bug Fixes & Improvements

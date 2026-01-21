@@ -22,20 +22,6 @@ This is the master task list for all remaining work on NanoChat Desktop. Tasks a
 
 These tasks are essential for basic usability and should be completed first.
 
-### [ ] Message Copy Button
-**Source**: Phase 3, Task 3.12 (migrated from Phase 2)
-
-Allow users to copy message content to clipboard with a single click.
-
-**Implementation:**
-- Add copy button to message widgets (appears on hover)
-- Toast notification confirms copy
-- Works for both user and assistant messages
-
-**Files**: `src/nanochat/ui/message_widget.py`
-
----
-
 ### [ ] Conversation Renaming
 **Source**: Phase 3, Task 3.11 (migrated from Phase 2)
 
@@ -990,8 +976,8 @@ Allow app to minimize to system tray.
 
 ## Summary Statistics
 
-- **Total Pending Tasks**: 58
-- **Critical Priority**: 4 (Keyboard Shortcuts and Conversation Search completed 2025-01-18)
+- **Total Pending Tasks**: 57
+- **Critical Priority**: 3 (Keyboard Shortcuts, Conversation Search, and Message Copy Button completed 2025-01-18/2026-01-21)
 - **High Priority**: 15
 - **Medium Priority**: 15
 - **Lower Priority**: 22
