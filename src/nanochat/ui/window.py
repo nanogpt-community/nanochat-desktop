@@ -1267,16 +1267,65 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         else:
             self.toast_overlay.add_toast(Adw.Toast(title="Could not find user message to regenerate"))
 
-    def _on_star_message(self, starred: bool) -> None:
+    def _on_star_message(self, message_id: str, starred: bool) -> None:
         """Handle star button click - toggle message starred status.
 
         Args:
+            message_id: The message ID to star/unstar
             starred: New starred state
         """
-        # For now, just show a toast notification
-        # TODO: Implement actual API call to toggle star status
-        status = "starred" if starred else "unstarred"
-        self.toast_overlay.add_toast(Adw.Toast(title=f"Message {status}"))
+        url = self.settings_manager.settings.server.backend_url
+        key = self.secrets_manager.get_api_key()
+
+        if not url or not key:
+            self.toast_overlay.add_toast(Adw.Toast(title="API credentials not configured"))
+            return
+
+        # Find the message to update
+        message_to_update = None
+        for msg in self._current_messages:
+            if msg.id == message_id:
+                message_to_update = msg
+                msg.starred = starred
+                break
+
+        if not message_to_update:
+            return
+
+        # Call API in background
+        def do_toggle_star() -> None:
+            from nanochat.api.client import NanoChatClient
+
+            async def toggle() -> None:
+                try:
+                    async with NanoChatClient(url, key) as client:
+                        await client.toggle_star(message_id, starred)
+                    # Update message in database
+                    self.database.save_message(message_to_update)
+                    GLib.idle_add(
+                        lambda: self.toast_overlay.add_toast(
+                            Adw.Toast(title=f"Message {'starred' if starred else 'unstarred'}")
+                        )
+                    )
+                except Exception as e:
+                    # Revert local change on error
+                    message_to_update.starred = not starred
+                    GLib.idle_add(
+                        lambda: self.toast_overlay.add_toast(
+                            Adw.Toast(title=f"Failed to toggle star: {e}")
+                        )
+                    )
+
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(toggle())
+                loop.close()
+            except Exception as e:
+                GLib.idle_add(self._show_error, str(e))
+
+        thread = threading.Thread(target=do_toggle_star, daemon=True)
+        thread.start()
 
     def _show_loading_indicator(self, message: str) -> None:
         """Show loading indicator in the title bar."""
@@ -1322,6 +1371,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             widget = MessageWidget(
                 role=msg.role,
                 content=msg.content,
+                message_id=msg.id,
                 model_id=msg.model_id,
                 token_count=msg.token_count,
                 cost_usd=msg.cost_usd,

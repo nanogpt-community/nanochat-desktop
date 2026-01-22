@@ -32,6 +32,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         self,
         role: str,
         content: str,
+        message_id: Optional[str] = None,
         model_id: Optional[str] = None,
         token_count: Optional[int] = None,
         cost_usd: Optional[float] = None,
@@ -39,7 +40,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         starred: bool = False,
         reasoning: Optional[str] = None,
         on_regenerate: Optional[Callable[[], None]] = None,
-        on_star: Optional[Callable[[bool], None]] = None,
+        on_star: Optional[Callable[[str, bool], None]] = None,
         **kwargs: object,
     ) -> None:
         """Initialize a message widget.
@@ -47,6 +48,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         Args:
             role: Message role ("user" or "assistant")
             content: Message content
+            message_id: ID of the message (for starring operations)
             model_id: ID of the model used (for assistant messages)
             token_count: Number of tokens used
             cost_usd: Cost in USD
@@ -58,6 +60,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         """
         super().__init__(**kwargs)
 
+        self.message_id = message_id
         self.role = role
         self.content = content
         self.model_id = model_id
@@ -324,7 +327,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
 
     def _on_star_clicked(self, button: Gtk.Button) -> None:
         """Handle star button click."""
-        if self.on_star:
+        if self.on_star and self.message_id:
             # Toggle starred state
             self.starred = not self.starred
 
@@ -333,8 +336,8 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
             button.set_icon_name(star_icon)
             button.set_tooltip_text("Unstar message" if self.starred else "Star message")
 
-            # Call callback
-            self.on_star(self.starred)
+            # Call callback with message_id and new starred state
+            self.on_star(self.message_id, self.starred)
 
     def _show_copy_toast(self) -> None:
         """Try to show a toast notification for copy action."""
