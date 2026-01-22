@@ -16,6 +16,7 @@ from nanochat.api.models import Assistant, Conversation, Message, Model
 from nanochat.data.database import Database
 from nanochat.data.secrets import SecretsManager
 from nanochat.data.settings import SettingsManager
+from nanochat.data.sync_manager import SyncEvent, get_sync_manager
 from nanochat.data.repositories import ConversationRepository, MessageRepository
 from nanochat.ui.message_widget import MessageWidget
 from nanochat.ui.models_dialog import ModelsDialog
@@ -88,6 +89,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         self._setup_ui()
         self._setup_keyboard_shortcuts()
+        self._setup_sync_events()
 
         # Connect to map signal for loading after UI is ready
         self.connect("map", self._on_map)
@@ -370,6 +372,44 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         # Setup sidebar navigation
         self._setup_sidebar_navigation()
+
+    def _setup_sync_events(self) -> None:
+        """Set up sync event subscriptions using the event bus."""
+        sync_manager = get_sync_manager()
+
+        # Subscribe to conversations refreshed event
+        sync_manager.subscribe(
+            SyncEvent.CONVERSATIONS_REFRESHED,
+            self._on_conversations_refreshed,
+        )
+
+        # Subscribe to messages updated event
+        sync_manager.subscribe(
+            SyncEvent.MESSAGES_UPDATED,
+            self._on_messages_updated_event,
+        )
+
+    def _on_conversations_refreshed(self, data: dict[str, object]) -> None:
+        """Handle conversations refreshed event from the sync manager.
+
+        Args:
+            data: Event data (empty for this event)
+        """
+        # Refresh the conversation list from local cache
+        if self.conversation_repo:
+            conversations = self.conversation_repo.get_conversations()
+            self._update_conversation_list(conversations)
+
+    def _on_messages_updated_event(self, data: dict[str, object]) -> None:
+        """Handle messages updated event from the sync manager.
+
+        Args:
+            data: Event data containing 'conversation_id'
+        """
+        conversation_id = data.get("conversation_id")
+        if conversation_id and conversation_id == self._current_conversation_id:
+            # Reload messages for the current conversation
+            self._load_messages(str(conversation_id))
 
     def _on_key_pressed(
         self,
@@ -847,7 +887,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         if result.success:
             logger.info(f"Synced {len(result.data)} conversations from API")
-            self._update_conversation_list(result.data)
+
+            # Emit event through sync manager instead of direct update
+            get_sync_manager().notify_conversations_refreshed()
 
             # Show success toast if this was a manual refresh
             if force_refresh:
@@ -1150,6 +1192,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         # Only update if we're still looking at the same conversation
         if self._current_conversation_id == conversation_id:
             self._update_messages_list(messages, from_cache=from_cache)
+
+            # Emit event through sync manager
+            get_sync_manager().notify_messages_updated(conversation_id)
 
     def _on_messages_sync_error(self, conversation_id: str, error: str) -> None:
         """Handle message sync error on the main thread.

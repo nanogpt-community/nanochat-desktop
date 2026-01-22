@@ -38,7 +38,8 @@
       "Bash(git pull:*)",
       "Bash(git branch:*)",
       "Bash(git tag -a v0.3.0 -m \"Release v0.3.0 - SSE Streaming & Real-time Message Generation\":*)",
-      "Bash(git tag:*)"
+      "Bash(git tag:*)",
+      "Bash(ruff check:*)"
     ]
   }
 }
