@@ -1253,6 +1253,7 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 model_id=msg.model_id,
                 token_count=msg.token_count,
                 cost_usd=msg.cost_usd,
+                reasoning=msg.reasoning,
             )
             self.messages_list.append(widget)
 

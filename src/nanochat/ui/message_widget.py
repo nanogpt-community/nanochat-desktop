@@ -37,6 +37,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         cost_usd: Optional[float] = None,
         response_time_ms: Optional[int] = None,
         starred: bool = False,
+        reasoning: Optional[str] = None,
         on_regenerate: Optional[Callable[[], None]] = None,
         on_star: Optional[Callable[[bool], None]] = None,
         **kwargs: object,
@@ -51,6 +52,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
             cost_usd: Cost in USD
             response_time_ms: Response time in milliseconds
             starred: Whether the message is starred
+            reasoning: Model reasoning/thinking content (for reasoning models)
             on_regenerate: Callback when regenerate is clicked
             on_star: Callback when star toggle is clicked
         """
@@ -63,6 +65,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         self.cost_usd = cost_usd
         self.response_time_ms = response_time_ms
         self.starred = starred
+        self.reasoning = reasoning
         self.on_regenerate = on_regenerate
         self.on_star = on_star
 
@@ -71,6 +74,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         self._regen_btn: Optional[Gtk.Button] = None
         self._star_btn: Optional[Gtk.Button] = None
         self._metadata_box: Optional[Gtk.Box] = None
+        self._reasoning_expander: Optional[Gtk.Expander] = None
 
         self._build_ui()
 
@@ -108,6 +112,10 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         # Action buttons (copy, regenerate, star)
         self._build_action_buttons(header_box)
         container.append(header_box)
+
+        # Reasoning section (collapsible, for assistant messages with reasoning)
+        if self.reasoning and self.role == "assistant":
+            self._add_reasoning_section(container)
 
         # Content container with card-like styling
         content_frame = Adw.Bin()
@@ -242,6 +250,30 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
             metadata_box.append(time_label)
 
         return metadata_box
+
+    def _add_reasoning_section(self, container: Gtk.Box) -> None:
+        """Add collapsible reasoning section to the container.
+
+        Args:
+            container: The parent container to add the expander to
+        """
+        expander = Gtk.Expander()
+        expander.set_label("💭 Thinking")
+        expander.add_css_class("reasoning-expander")
+        expander.set_expanded(False)  # Start collapsed
+
+        # Reasoning content label
+        reasoning_label = Gtk.Label(label=self.reasoning)
+        reasoning_label.set_wrap(True)
+        reasoning_label.set_xalign(0.0)
+        reasoning_label.add_css_class("dim-label")
+        reasoning_label.add_css_class("reasoning-content")
+
+        expander.set_child(reasoning_label)
+        container.append(expander)
+
+        # Store reference for potential updates
+        self._reasoning_expander = expander
 
     def _set_action_buttons_opacity(self, opacity: float) -> None:
         """Set opacity for all action buttons.
@@ -463,3 +495,17 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
                 parent.remove(self._metadata_box)
             self._metadata_box = self._add_metadata_footer()
             parent.append(self._metadata_box)
+
+    def update_reasoning(self, reasoning: str) -> None:
+        """Update reasoning content (for streaming).
+
+        Args:
+            reasoning: New reasoning content to display
+        """
+        self.reasoning = reasoning
+
+        if self._reasoning_expander:
+            # Update the label content
+            child = self._reasoning_expander.get_child()
+            if isinstance(child, Gtk.Label):
+                child.set_label(reasoning)
