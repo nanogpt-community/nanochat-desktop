@@ -17,6 +17,11 @@ _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
 _ITALIC_RE = re.compile(r"\*([^*]+)\*")
+# New patterns for extended markdown
+_HEADER_RE = re.compile(r"^(#{1,6})\s+(.+)$")  # Headers
+_BLOCKQUOTE_RE = re.compile(r"^>\s*(.+)$")  # Blockquotes
+_HR_RE = re.compile(r"^(?:-{3,}|\*{3,})\s*$")  # Horizontal rules
+_LIST_RE = re.compile(r"^([*\-+]|\d+\.)\s+(.+)$")  # Lists (unordered and ordered)
 
 # Security: Only allow safe URL schemes for links
 _ALLOWED_URL_SCHEMES = ("http://", "https://", "mailto:")
@@ -354,16 +359,131 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
             widget = widget.get_parent()
 
     def _render_markdown(self, text: str) -> str:
-        """Convert basic markdown to Pango markup.
+        """Convert markdown to Pango markup.
 
         Supports:
+        Block-level:
+        - # Headers (H1-H6) with size attributes
+        - - Unordered lists (with • bullets)
+        - 1. Ordered lists (with numbers)
+        - > Blockquotes (italic)
+        - --- Horizontal rules
+        Inline:
         - **bold** → <b>
         - *italic* → <i>
-        - `inline code` → <tt>
+        - `inline code` → <tt> with background
         - ```code blocks``` → formatted blocks
         - [links](url) → clickable links (http/https/mailto only)
 
         Security: URLs are validated to only allow safe schemes.
+        """
+        if not text:
+            return ""
+
+        lines = text.split("\n")
+        result_lines: list[str] = []
+        in_code_block = False
+        code_lines: list[str] = []
+
+        # First pass: handle code blocks and collect non-code lines
+        for line in lines:
+            # Check for code block start/end
+            if line.strip().startswith("```"):
+                if in_code_block:
+                    # End code block - render it
+                    in_code_block = False
+                    if code_lines:
+                        code = "\n".join(code_lines)
+                        escaped = GLib.markup_escape_text(code)
+                        result_lines.append(f'<span font_family="monospace" bgcolor="#f0f0f0">{escaped}</span>')
+                    code_lines = []
+                else:
+                    # Start code block
+                    in_code_block = True
+                    code_lines = []
+                continue
+
+            if in_code_block:
+                # Collect code lines
+                code_lines.append(line)
+            else:
+                result_lines.append(line)
+
+        # Second pass: process each line for block-level and inline formatting
+        formatted_lines: list[str] = []
+        in_list = False
+        list_indent = 0
+
+        for line in result_lines:
+            # Skip empty lines (but add them for spacing between blocks)
+            if not line.strip():
+                formatted_lines.append("")
+                # Reset list context on blank line
+                in_list = False
+                continue
+
+            # Check for horizontal rule
+            if _HR_RE.match(line):
+                formatted_lines.append("")  # Add spacing before
+                formatted_lines.append("—")  # Horizontal rule using em dash
+                formatted_lines.append("")  # Add spacing after
+                in_list = False
+                continue
+
+            # Check for header
+            header_match = _HEADER_RE.match(line)
+            if header_match:
+                level = len(header_match.group(1))  # Number of # characters
+                content = header_match.group(2)
+                escaped_content = GLib.markup_escape_text(content)
+                # Use size attribute: 1=xx-large, 2=x-large, 3=large, 4=medium, 5=small, 6=x-small
+                size_map = {1: "xx-large", 2: "x-large", 3: "large", 4: "medium", 5: "small", 6: "x-small"}
+                size_attr = size_map.get(level, "medium")
+                formatted_lines.append(f'<span size="{size_attr}" weight="bold">{escaped_content}</span>')
+                in_list = False
+                continue
+
+            # Check for blockquote
+            blockquote_match = _BLOCKQUOTE_RE.match(line)
+            if blockquote_match:
+                content = blockquote_match.group(1)
+                # Apply inline formatting and wrap in italics
+                formatted = self._format_inline(content)
+                formatted_lines.append(f"<i>{formatted}</i>")
+                in_list = False
+                continue
+
+            # Check for list item
+            list_match = _LIST_RE.match(line)
+            if list_match:
+                marker = list_match.group(1)
+                content = list_match.group(2)
+                # Determine list type and indent
+                if marker in ("*", "-", "+"):
+                    # Unordered list
+                    formatted = self._format_inline(content)
+                    formatted_lines.append(f" • {formatted}")
+                else:
+                    # Ordered list (marker ends with ".")
+                    formatted = self._format_inline(content)
+                    formatted_lines.append(f" {marker} {formatted}")
+                in_list = True
+                continue
+
+            # Regular paragraph line - apply inline formatting
+            formatted_lines.append(self._format_inline(line))
+
+        # Join lines with newlines
+        return "\n".join(formatted_lines)
+
+    def _format_inline(self, text: str) -> str:
+        """Apply inline markdown formatting (bold, italic, code, links).
+
+        Args:
+            text: Text to format
+
+        Returns:
+            Formatted text with Pango markup
         """
         if not text:
             return ""
@@ -396,21 +516,10 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
                         new_parts.append((part_text[last_end:], False))
             return new_parts
 
-        # Code blocks ```code```
-        def replace_code_block(match: re.Match[str]) -> str:
-            code = match.group(2)
-            escaped = GLib.markup_escape_text(code)
-            # Use simple gray background (#f0f0f0) - alpha() and padding not supported in Pango
-            return f'<span font_family="monospace" bgcolor="#f0f0f0">{escaped}</span>'
-
-        parts = process_parts(_CODE_BLOCK_RE, replace_code_block)
-
         # Inline code `code`
         def replace_inline_code(match: re.Match[str]) -> str:
             code = match.group(1)
             escaped = GLib.markup_escape_text(code)
-            # Use <span> instead of <tt> because <tt> doesn't support attributes
-            # Use simple gray background (#f5f5f5) - alpha() not supported in Pango
             return f'<span font_family="monospace" bgcolor="#f5f5f5">{escaped}</span>'
 
         parts = process_parts(_INLINE_CODE_RE, replace_inline_code)
