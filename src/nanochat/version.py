@@ -1,6 +1,6 @@
 """Version and application metadata for NanoChat Desktop."""
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 APP_NAME = "NanoChat Desktop"
 APP_ID = "com.nanogpt.NanoChat"
 GITHUB_URL = "https://github.com/nanogpt-community/nanochat-desktop"
