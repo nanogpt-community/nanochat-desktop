@@ -17,6 +17,94 @@ try:
     from pygments.lexers import get_lexer_by_name, guess_lexer, TextLexer
     from pygments.formatter import Formatter
     _PYGMENTS_AVAILABLE = True
+
+    class PangoFormatter(Formatter):
+        """Custom Pygments formatter that outputs Pango markup.
+
+        Pygments token types are mapped to Pango markup spans with
+        appropriate foreground colors for syntax highlighting.
+        """
+
+        # Map pygments token types to Pango foreground colors
+        # Colors chosen to match common syntax highlighting themes
+        TOKEN_COLORS = {
+            # Keywords (if, def, class, return, etc.)
+            "Token.Keyword": "#0000ff",  # Blue
+            "Token.Keyword.Constant": "#0000ff",
+            "Token.Keyword.Declaration": "#0000ff",
+            "Token.Keyword.Namespace": "#0000ff",
+            "Token.Keyword.Type": "#0000ff",
+            "Token.Keyword.Reserved": "#0000ff",
+            # Names (function names, class names)
+            "Token.Name": "#000000",
+            "Token.Name.Function": "#000000",
+            "Token.Name.Class": "#a31515",  # Dark red
+            "Token.Name.Exception": "#a31515",
+            "Token.Name.Decorator": "#a31515",
+            "Token.Name.Builtin": "#a31515",
+            "Token.Name.Builtin.Pseudo": "#a31515",
+            # Operators
+            "Token.Operator": "#000000",
+            "Token.Operator.Word": "#0000ff",
+            # Strings
+            "Token.Literal.String": "#a31515",  # Dark red
+            "Token.Literal.String.Single": "#a31515",
+            "Token.Literal.String.Double": "#a31515",
+            "Token.Literal.String.Triple": "#a31515",
+            "Token.Literal.String.Char": "#a31515",
+            # Numbers
+            "Token.Literal.Number": "#098658",  # Green
+            "Token.Literal.Number.Integer": "#098658",
+            "Token.Literal.Number.Float": "#098658",
+            "Token.Literal.Number.Hex": "#098658",
+            "Token.Literal.Number.Oct": "#098658",
+            # Comments
+            "Token.Comment": "#008000",  # Green
+            "Token.Comment.Single": "#008000",
+            "Token.Comment.Multi": "#008000",
+            "Token.Comment.Special": "#008000",
+            "Token.Comment.Preproc": "#0000ff",  # Blue for preprocessor
+            # Other
+            "Token.Punctuation": "#000000",
+            "Token.Text": "#000000",
+            "Token.Text.Whitespace": "#000000",
+            "Token.Generic": "#000000",
+            "Token.Generic.Error": "#ff0000",  # Red
+            "Token.Generic.Heading": "#000000",
+            "Token.Generic.Subheading": "#000000",
+            "Token.Generic.Deleted": "#ff0000",
+            "Token.Generic.Inserted": "#008000",
+            "Token.Generic.Emph": "#000000",
+            "Token.Generic.Strong": "#000000",
+            "Token.Generic.Prompt": "#000000",
+            "Token.Generic.Output": "#000000",
+            "Token.Generic.Traceback": "#ff0000",
+        }
+
+        def __init__(self, **options: object) -> None:
+            super().__init__(**options)
+
+        def format(self, tokensource: tuple[tuple[object, str], ...], outfile: object) -> None:
+            """Format tokens as Pango markup, writing to outfile.
+
+            Args:
+                tokensource: Iterator of (token_type, value) pairs from pygments
+                outfile: File-like object to write output to
+            """
+            for token_type, value in tokensource:
+                # Get the token type string
+                token_str = str(token_type)
+
+                # Look up color for this token type
+                color = self.TOKEN_COLORS.get(token_str, None)
+
+                # Escape the value for Pango markup
+                escaped = GLib.markup_escape_text(value)
+
+                if color and value.strip():  # Only add span if we have a color and non-whitespace
+                    outfile.write(f'<span foreground="{color}">{escaped}</span>')
+                else:
+                    outfile.write(escaped)
 except ImportError:
     _PYGMENTS_AVAILABLE = False
 
@@ -41,95 +129,6 @@ _ALLOWED_URL_SCHEMES = ("http://", "https://", "mailto:")
 
 # Maximum content length to prevent DoS via extremely long messages
 _MAX_CONTENT_LENGTH = 5000
-
-
-class PangoFormatter(Formatter):
-    """Custom Pygments formatter that outputs Pango markup.
-
-    Pygments token types are mapped to Pango markup spans with
-    appropriate foreground colors for syntax highlighting.
-    """
-
-    # Map pygments token types to Pango foreground colors
-    # Colors chosen to match common syntax highlighting themes
-    TOKEN_COLORS = {
-        # Keywords (if, def, class, return, etc.)
-        "Token.Keyword": "#0000ff",  # Blue
-        "Token.Keyword.Constant": "#0000ff",
-        "Token.Keyword.Declaration": "#0000ff",
-        "Token.Keyword.Namespace": "#0000ff",
-        "Token.Keyword.Type": "#0000ff",
-        "Token.Keyword.Reserved": "#0000ff",
-        # Names (function names, class names)
-        "Token.Name": "#000000",
-        "Token.Name.Function": "#000000",
-        "Token.Name.Class": "#a31515",  # Dark red
-        "Token.Name.Exception": "#a31515",
-        "Token.Name.Decorator": "#a31515",
-        "Token.Name.Builtin": "#a31515",
-        "Token.Name.Builtin.Pseudo": "#a31515",
-        # Operators
-        "Token.Operator": "#000000",
-        "Token.Operator.Word": "#0000ff",
-        # Strings
-        "Token.Literal.String": "#a31515",  # Dark red
-        "Token.Literal.String.Single": "#a31515",
-        "Token.Literal.String.Double": "#a31515",
-        "Token.Literal.String.Triple": "#a31515",
-        "Token.Literal.String.Char": "#a31515",
-        # Numbers
-        "Token.Literal.Number": "#098658",  # Green
-        "Token.Literal.Number.Integer": "#098658",
-        "Token.Literal.Number.Float": "#098658",
-        "Token.Literal.Number.Hex": "#098658",
-        "Token.Literal.Number.Oct": "#098658",
-        # Comments
-        "Token.Comment": "#008000",  # Green
-        "Token.Comment.Single": "#008000",
-        "Token.Comment.Multi": "#008000",
-        "Token.Comment.Special": "#008000",
-        "Token.Comment.Preproc": "#0000ff",  # Blue for preprocessor
-        # Other
-        "Token.Punctuation": "#000000",
-        "Token.Text": "#000000",
-        "Token.Text.Whitespace": "#000000",
-        "Token.Generic": "#000000",
-        "Token.Generic.Error": "#ff0000",  # Red
-        "Token.Generic.Heading": "#000000",
-        "Token.Generic.Subheading": "#000000",
-        "Token.Generic.Deleted": "#ff0000",
-        "Token.Generic.Inserted": "#008000",
-        "Token.Generic.Emph": "#000000",
-        "Token.Generic.Strong": "#000000",
-        "Token.Generic.Prompt": "#000000",
-        "Token.Generic.Output": "#000000",
-        "Token.Generic.Traceback": "#ff0000",
-    }
-
-    def __init__(self, **options: object) -> None:
-        super().__init__(**options)
-
-    def format(self, tokensource: tuple[tuple[object, str], ...], outfile: object) -> None:
-        """Format tokens as Pango markup, writing to outfile.
-
-        Args:
-            tokensource: Iterator of (token_type, value) pairs from pygments
-            outfile: File-like object to write output to
-        """
-        for token_type, value in tokensource:
-            # Get the token type string
-            token_str = str(token_type)
-
-            # Look up color for this token type
-            color = self.TOKEN_COLORS.get(token_str, None)
-
-            # Escape the value for Pango markup
-            escaped = GLib.markup_escape_text(value)
-
-            if color and value.strip():  # Only add span if we have a color and non-whitespace
-                outfile.write(f'<span foreground="{color}">{escaped}</span>')
-            else:
-                outfile.write(escaped)
 
 
 class MessageWidget(Adw.Bin):  # type: ignore[misc]
