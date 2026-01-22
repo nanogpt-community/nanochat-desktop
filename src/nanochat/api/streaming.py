@@ -15,6 +15,12 @@ from nanochat.api.client import NanoChatClient
 from nanochat.api.models import GenerateMessageRequest
 
 
+class StreamCancelledError(Exception):
+    """Exception raised when streaming is cancelled by user."""
+
+    pass
+
+
 class StreamingManager:
     """Manages SSE streaming with cancellation and timeout support.
 
@@ -112,8 +118,9 @@ class StreamingManager:
             """Handle SSE events from the API."""
             nonlocal accumulated_content, accumulated_reasoning
 
+            # Check for cancellation at the start of each event
             if self._cancelled:
-                return
+                raise StreamCancelledError("Stream cancelled by user")
 
             if event_type == "message_start":
                 conversation_id = data.get("conversation_id", "")
@@ -153,12 +160,20 @@ class StreamingManager:
         try:
             # Create the API client
             async with NanoChatClient(self._backend_url, self._api_key) as client:
-                # Wrap in timeout
                 self._current_task = asyncio.current_task()
+
+                # Pass cancellation flag to client
+                def is_cancelled() -> bool:
+                    return self._cancelled
+
                 await asyncio.wait_for(
-                    client.stream_generate_message(request, handle_event),
+                    client.stream_generate_message(request, handle_event, is_cancelled),
                     timeout=self.STREAM_TIMEOUT_SECONDS,
                 )
+
+        except StreamCancelledError:
+            # User explicitly cancelled - this is expected, not an error
+            pass  # Don't show error notification
 
         except asyncio.TimeoutError:
             GLib.idle_add(on_error, f"Stream timeout after {self.STREAM_TIMEOUT_SECONDS // 60} minutes")

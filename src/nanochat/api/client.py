@@ -276,6 +276,7 @@ class NanoChatClient:
         self,
         request: GenerateMessageRequest,
         on_event: Callable[[str, dict], None],
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> None:
         """Generate a message with SSE streaming using callbacks.
 
@@ -288,6 +289,7 @@ class NanoChatClient:
         Args:
             request: Generation request parameters
             on_event: Callback function receiving (event_type, event_data)
+            is_cancelled: Optional callback to check for cancellation (return True to cancel)
 
         Raises:
             NanoChatAPIError: If the API returns an error
@@ -313,6 +315,10 @@ class NanoChatClient:
 
                 try:
                     async for line in response.aiter_lines():
+                        # Check for cancellation before processing each line
+                        if is_cancelled and is_cancelled():
+                            break
+
                         # If we've already received a terminal event, just consume and ignore
                         if received_complete:
                             continue
