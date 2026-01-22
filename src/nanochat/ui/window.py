@@ -13,6 +13,7 @@ from pathlib import Path
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from nanochat.api.models import Assistant, Conversation, Message, Model
+from nanochat.api.streaming import StreamingManager
 from nanochat.data.database import Database
 from nanochat.data.secrets import SecretsManager
 from nanochat.data.settings import SettingsManager
@@ -84,6 +85,9 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self._attachment_preview_bar: AttachmentPreviewBar | None = None
         self._is_uploading: bool = False
 
+        # Streaming manager for cancellable message generation
+        self._streaming_manager: StreamingManager | None = None
+
         self.set_default_size(1200, 800)
         self.set_title("NanoChat")
 
@@ -113,6 +117,22 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 self.message_repo = MessageRepository(self.database, url, key)
 
         return True
+
+    def _get_streaming_manager(self) -> StreamingManager | None:
+        """Get or create the streaming manager.
+
+        Returns StreamingManager if URL and API key are available, None otherwise.
+        """
+        if self._streaming_manager is None:
+            url = self.settings_manager.settings.server.backend_url
+            key = self.secrets_manager.get_api_key()
+
+            if not url or not key:
+                return None
+
+            self._streaming_manager = StreamingManager(url, key)
+
+        return self._streaming_manager
 
     def _setup_ui(self) -> None:
         """Build the UI."""
@@ -1532,8 +1552,14 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self.web_search_popover.popdown()
 
     def _on_send(self, widget: Gtk.Widget) -> None:
-        """Handle send button click."""
+        """Handle send button click - send message or cancel generation."""
         if self._is_sending:
+            # Cancel the current generation
+            manager = self._get_streaming_manager()
+            if manager:
+                manager.cancel()
+            self._set_sending_state(False)
+            self.toast_overlay.add_toast(Adw.Toast(title="Generation cancelled"))
             return
 
         text = self.message_entry.get_text().strip()
@@ -1646,52 +1672,6 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                             file_type=attachment.document_type.value if attachment.document_type else "text",
                         ))
 
-                # Mutable state for accumulating content
-                state = {"accumulated_content": "", "conversation_id": None}
-
-                def on_event(event_type: str, event_data: dict) -> None:
-                    """Handle SSE events from the stream."""
-                    if event_type == "message_start":
-                        # Set conversation ID from message_start event
-                        conv_id = event_data.get("conversation_id")
-                        if conv_id:
-                            state["conversation_id"] = conv_id
-                            GLib.idle_add(self._set_conversation_id, conv_id)
-
-                    elif event_type == "delta":
-                        # Accumulate content and update UI
-                        delta_content = event_data.get("content", "")
-                        state["accumulated_content"] += delta_content
-                        GLib.idle_add(self._update_assistant_message, state["accumulated_content"])
-
-                    elif event_type == "message_complete":
-                        # Generation complete - refresh title only if it's a new chat
-                        conv_id = state.get("conversation_id")
-                        # Capture metadata for display
-                        response_time_ms = event_data.get("response_time_ms")
-                        token_count = event_data.get("token_count")
-                        cost_usd = event_data.get("cost_usd")
-
-                        # Update the assistant message widget with metadata
-                        GLib.idle_add(self._update_assistant_message_metadata, token_count, cost_usd, response_time_ms)
-
-                        if conv_id:
-                            def schedule_title_refresh() -> bool:
-                                """Schedule title refresh on main thread."""
-                                def do_refresh() -> bool:
-                                    self._refresh_conversation_title(conv_id)
-                                    return False  # Don't repeat
-                                # Schedule refresh after 1 second delay
-                                GLib.timeout_add(1000, do_refresh)
-                                return False  # Don't repeat idle_add
-                            # Use idle_add first to get to main thread, then timeout_add
-                            GLib.idle_add(schedule_title_refresh)
-
-                    elif event_type == "error":
-                        # Handle error event
-                        error_msg = event_data.get("error", "Unknown error")
-                        GLib.idle_add(self._show_error, error_msg)
-
                 # Build request
                 request_kwargs = {
                     "message": text if text else None,
@@ -1714,9 +1694,52 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
                 request = GenerateMessageRequest(**request_kwargs)
 
+                # Use StreamingManager for cancellable streaming with timeout
+                manager = self._get_streaming_manager()
+                if not manager:
+                    GLib.idle_add(self._show_error, "API credentials not configured")
+                    return
+
+                # Track conversation for title refresh
+                conversation_to_refresh: str | None = None
+
+                def on_message_start(conv_id: str, msg_id: str) -> None:
+                    """Handle message start event."""
+                    nonlocal conversation_to_refresh
+                    conversation_to_refresh = conv_id
+                    GLib.idle_add(self._set_conversation_id, conv_id)
+
+                def on_complete(data: dict) -> None:
+                    """Handle message complete event."""
+                    # Update metadata
+                    response_time_ms = data.get("response_time_ms")
+                    token_count = data.get("token_count")
+                    cost_usd = data.get("cost_usd")
+                    GLib.idle_add(self._update_assistant_message_metadata, token_count, cost_usd, response_time_ms)
+
+                    # Refresh title if this was a new chat
+                    if conversation_to_refresh:
+                        def schedule_title_refresh() -> bool:
+                            def do_refresh() -> bool:
+                                self._refresh_conversation_title(conversation_to_refresh)
+                                return False
+                            GLib.timeout_add(1000, do_refresh)
+                            return False
+                        GLib.idle_add(schedule_title_refresh)
+
+                def on_error(error_msg: str) -> None:
+                    """Handle error event."""
+                    GLib.idle_add(self._show_error, error_msg)
+
                 try:
-                    async with NanoChatClient(url, key) as client:
-                        await client.stream_generate_message(request, on_event)
+                    await manager.stream_message(
+                        request,
+                        on_content_delta=self._update_assistant_message,
+                        on_reasoning_delta=lambda r: None,  # TODO: implement reasoning updates
+                        on_message_start=on_message_start,
+                        on_complete=on_complete,
+                        on_error=on_error,
+                    )
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
