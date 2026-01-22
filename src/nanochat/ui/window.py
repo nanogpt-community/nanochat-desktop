@@ -1247,7 +1247,13 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         # Add messages
         for msg in messages:
-            widget = MessageWidget(role=msg.role, content=msg.content)
+            widget = MessageWidget(
+                role=msg.role,
+                content=msg.content,
+                model_id=msg.model_id,
+                token_count=msg.token_count,
+                cost_usd=msg.cost_usd,
+            )
             self.messages_list.append(widget)
 
         # Scroll to bottom

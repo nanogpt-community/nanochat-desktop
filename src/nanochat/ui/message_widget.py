@@ -26,20 +26,56 @@ _MAX_CONTENT_LENGTH = 5000
 
 
 class MessageWidget(Adw.Bin):  # type: ignore[misc]
-    """Widget for displaying a single chat message with improved styling."""
+    """Widget for displaying a single chat message with metadata and actions."""
 
-    def __init__(self, role: str, content: str, **kwargs: object) -> None:
+    def __init__(
+        self,
+        role: str,
+        content: str,
+        model_id: Optional[str] = None,
+        token_count: Optional[int] = None,
+        cost_usd: Optional[float] = None,
+        response_time_ms: Optional[int] = None,
+        starred: bool = False,
+        on_regenerate: Optional[Callable[[], None]] = None,
+        on_star: Optional[Callable[[bool], None]] = None,
+        **kwargs: object,
+    ) -> None:
+        """Initialize a message widget.
+
+        Args:
+            role: Message role ("user" or "assistant")
+            content: Message content
+            model_id: ID of the model used (for assistant messages)
+            token_count: Number of tokens used
+            cost_usd: Cost in USD
+            response_time_ms: Response time in milliseconds
+            starred: Whether the message is starred
+            on_regenerate: Callback when regenerate is clicked
+            on_star: Callback when star toggle is clicked
+        """
         super().__init__(**kwargs)
 
         self.role = role
         self.content = content
+        self.model_id = model_id
+        self.token_count = token_count
+        self.cost_usd = cost_usd
+        self.response_time_ms = response_time_ms
+        self.starred = starred
+        self.on_regenerate = on_regenerate
+        self.on_star = on_star
+
         self._content_label: Optional[Gtk.Label] = None
         self._copy_btn: Optional[Gtk.Button] = None
+        self._regen_btn: Optional[Gtk.Button] = None
+        self._star_btn: Optional[Gtk.Button] = None
+        self._metadata_box: Optional[Gtk.Box] = None
 
         self._build_ui()
 
     def _build_ui(self) -> None:
-        """Build the message UI with improved styling."""
+        """Build the message UI with metadata and actions."""
         # Main container with message widget class for CSS targeting
         container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         container.add_css_class("message-widget")
@@ -50,7 +86,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         else:
             container.add_css_class("assistant")
 
-        # Header row with role label and copy button
+        # Header row with role label
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         header_box.set_hexpand(True)
 
@@ -69,17 +105,8 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
 
         header_box.append(role_label)
 
-        # Copy button (hidden by default, shown on hover)
-        self._copy_btn = Gtk.Button(icon_name="edit-copy-symbolic")
-        self._copy_btn.add_css_class("flat")
-        self._copy_btn.add_css_class("circular")
-        self._copy_btn.add_css_class("message-copy-btn")
-        self._copy_btn.set_tooltip_text("Copy message")
-        self._copy_btn.set_valign(Gtk.Align.CENTER)
-        self._copy_btn.set_opacity(0)
-        self._copy_btn.connect("clicked", self._on_copy_clicked)
-        header_box.append(self._copy_btn)
-
+        # Action buttons (copy, regenerate, star)
+        self._build_action_buttons(header_box)
         container.append(header_box)
 
         # Content container with card-like styling
@@ -109,13 +136,125 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         content_frame.set_child(self._content_label)
         container.append(content_frame)
 
-        # Add hover controller for showing/hiding copy button
+        # Metadata footer (model, tokens, cost, time)
+        if self.role == "assistant":
+            self._metadata_box = self._add_metadata_footer()
+            container.append(self._metadata_box)
+
+        # Add hover controller for showing/hiding action buttons
         motion_controller = Gtk.EventControllerMotion()
         motion_controller.connect("enter", self._on_mouse_enter)
         motion_controller.connect("leave", self._on_mouse_leave)
         container.add_controller(motion_controller)
 
+        # Initially hide action buttons
+        self._set_action_buttons_opacity(0)
+
         self.set_child(container)
+
+    def _build_action_buttons(self, parent: Gtk.Box) -> None:
+        """Build and add action buttons to the parent container.
+
+        Args:
+            parent: The parent box to add buttons to
+        """
+        actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        actions_box.set_halign(Gtk.Align.END)
+        actions_box.add_css_class("message-actions")
+
+        # Regenerate button (assistant only)
+        if self.role == "assistant" and self.on_regenerate:
+            self._regen_btn = Gtk.Button(icon_name="view-refresh-symbolic")
+            self._regen_btn.add_css_class("flat")
+            self._regen_btn.add_css_class("circular")
+            self._regen_btn.set_tooltip_text("Regenerate response")
+            self._regen_btn.set_valign(Gtk.Align.CENTER)
+            self._regen_btn.connect("clicked", lambda _: self.on_regenerate())
+            actions_box.append(self._regen_btn)
+
+        # Star button (assistant only)
+        if self.role == "assistant" and self.on_star:
+            star_icon = "starred-symbolic" if self.starred else "non-starred-symbolic"
+            self._star_btn = Gtk.Button(icon_name=star_icon)
+            self._star_btn.add_css_class("flat")
+            self._star_btn.add_css_class("circular")
+            self._star_btn.set_tooltip_text("Star message" if not self.starred else "Unstar message")
+            self._star_btn.set_valign(Gtk.Align.CENTER)
+            self._star_btn.connect("clicked", self._on_star_clicked)
+            actions_box.append(self._star_btn)
+
+        # Copy button (always)
+        self._copy_btn = Gtk.Button(icon_name="edit-copy-symbolic")
+        self._copy_btn.add_css_class("flat")
+        self._copy_btn.add_css_class("circular")
+        self._copy_btn.add_css_class("message-copy-btn")
+        self._copy_btn.set_tooltip_text("Copy message")
+        self._copy_btn.set_valign(Gtk.Align.CENTER)
+        self._copy_btn.connect("clicked", self._on_copy_clicked)
+        actions_box.append(self._copy_btn)
+
+        parent.append(actions_box)
+
+    def _add_metadata_footer(self) -> Gtk.Box:
+        """Add metadata footer with model, tokens, cost, and time.
+
+        Returns:
+            The metadata box widget
+        """
+        metadata_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        metadata_box.add_css_class("message-metadata")
+
+        # Model ID
+        if self.model_id:
+            model_label = Gtk.Label(label=self.model_id)
+            model_label.add_css_class("dim-label")
+            model_label.add_css_class("caption")
+            model_label.add_css_class("caption-heading")
+            metadata_box.append(model_label)
+
+        # Token count
+        if self.token_count is not None:
+            tokens_label = Gtk.Label(label=f"{self.token_count:,} tokens")
+            tokens_label.add_css_class("dim-label")
+            tokens_label.add_css_class("caption")
+            metadata_box.append(tokens_label)
+
+        # Cost
+        if self.cost_usd is not None:
+            if self.cost_usd < 0.01:
+                cost_str = f"${self.cost_usd * 1000:.1f}k"  # Display in mills for small values
+            else:
+                cost_str = f"${self.cost_usd:.4f}" if self.cost_usd < 0.01 else f"${self.cost_usd:.2f}"
+            cost_label = Gtk.Label(label=cost_str)
+            cost_label.add_css_class("dim-label")
+            cost_label.add_css_class("caption")
+            metadata_box.append(cost_label)
+
+        # Response time
+        if self.response_time_ms is not None and self.response_time_ms > 0:
+            time_seconds = self.response_time_ms / 1000.0
+            if time_seconds < 1:
+                time_label = Gtk.Label(label=f"{self.response_time_ms}ms")
+            else:
+                time_label = Gtk.Label(label=f"{time_seconds:.1f}s")
+            time_label.add_css_class("dim-label")
+            time_label.add_css_class("caption")
+            metadata_box.append(time_label)
+
+        return metadata_box
+
+    def _set_action_buttons_opacity(self, opacity: float) -> None:
+        """Set opacity for all action buttons.
+
+        Args:
+            opacity: Opacity value (0.0 to 1.0)
+        """
+        if self._copy_btn:
+            self._copy_btn.set_opacity(opacity)
+        if self._regen_btn:
+            self._regen_btn.set_opacity(opacity)
+        if self._star_btn:
+            self._star_btn.set_opacity(opacity)
 
     def _on_mouse_enter(
         self,
@@ -123,14 +262,12 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         x: float,
         y: float,
     ) -> None:
-        """Show copy button on hover."""
-        if self._copy_btn:
-            self._copy_btn.set_opacity(1)
+        """Show action buttons on hover."""
+        self._set_action_buttons_opacity(1)
 
     def _on_mouse_leave(self, controller: Gtk.EventControllerMotion) -> None:
-        """Hide copy button when mouse leaves."""
-        if self._copy_btn:
-            self._copy_btn.set_opacity(0)
+        """Hide action buttons when mouse leaves."""
+        self._set_action_buttons_opacity(0)
 
     def _on_copy_clicked(self, button: Gtk.Button) -> None:
         """Copy message content to clipboard."""
@@ -152,6 +289,20 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
 
         # Also show toast if we can find the toast overlay
         self._show_copy_toast()
+
+    def _on_star_clicked(self, button: Gtk.Button) -> None:
+        """Handle star button click."""
+        if self.on_star:
+            # Toggle starred state
+            self.starred = not self.starred
+
+            # Update icon
+            star_icon = "starred-symbolic" if self.starred else "non-starred-symbolic"
+            button.set_icon_name(star_icon)
+            button.set_tooltip_text("Unstar message" if self.starred else "Star message")
+
+            # Call callback
+            self.on_star(self.starred)
 
     def _show_copy_toast(self) -> None:
         """Try to show a toast notification for copy action."""
@@ -272,7 +423,11 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         return "".join(result)
 
     def update_content(self, content: str) -> None:
-        """Update message content (for streaming)."""
+        """Update message content (for streaming).
+
+        Args:
+            content: New content to display
+        """
         self.content = content
         if self._content_label:
             # Apply length limit only to user input, not server responses
@@ -280,3 +435,31 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
             if self.role == "user" and len(content_to_render) > _MAX_CONTENT_LENGTH:
                 content_to_render = content_to_render[:_MAX_CONTENT_LENGTH] + "\n\n[Content truncated...]"
             self._content_label.set_label(self._render_markdown(content_to_render))
+
+    def update_metadata(
+        self,
+        token_count: Optional[int] = None,
+        cost_usd: Optional[float] = None,
+        response_time_ms: Optional[int] = None,
+    ) -> None:
+        """Update metadata display.
+
+        Args:
+            token_count: New token count
+            cost_usd: New cost in USD
+            response_time_ms: New response time in milliseconds
+        """
+        if token_count is not None:
+            self.token_count = token_count
+        if cost_usd is not None:
+            self.cost_usd = cost_usd
+        if response_time_ms is not None:
+            self.response_time_ms = response_time_ms
+
+        # Rebuild metadata footer
+        if self._metadata_box:
+            parent = self._metadata_box.get_parent()
+            if parent:
+                parent.remove(self._metadata_box)
+            self._metadata_box = self._add_metadata_footer()
+            parent.append(self._metadata_box)
