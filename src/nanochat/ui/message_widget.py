@@ -214,7 +214,8 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         def replace_code_block(match: re.Match[str]) -> str:
             code = match.group(2)
             escaped = GLib.markup_escape_text(code)
-            return f'<span font_family="monospace" bgcolor="alpha(@shade_color,0.2)" padding="8" rise="8">{escaped}</span>'
+            # Use simple gray background (#f0f0f0) - alpha() and padding not supported in Pango
+            return f'<span font_family="monospace" bgcolor="#f0f0f0">{escaped}</span>'
 
         parts = process_parts(_CODE_BLOCK_RE, replace_code_block)
 
@@ -222,7 +223,9 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         def replace_inline_code(match: re.Match[str]) -> str:
             code = match.group(1)
             escaped = GLib.markup_escape_text(code)
-            return f'<tt font_family="monospace" bgcolor="alpha(@shade_color,0.15)">{escaped}</tt>'
+            # Use <span> instead of <tt> because <tt> doesn't support attributes
+            # Use simple gray background (#f5f5f5) - alpha() not supported in Pango
+            return f'<span font_family="monospace" bgcolor="#f5f5f5">{escaped}</span>'
 
         parts = process_parts(_INLINE_CODE_RE, replace_inline_code)
 

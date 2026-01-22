@@ -8,6 +8,7 @@ from typing import Optional, List
 
 from nanochat.api.models import Conversation, Message
 from .xdg import get_data_dir
+from .sync_status import SyncStatus
 
 
 class Database:
@@ -36,6 +37,7 @@ class Database:
                     pinned BOOLEAN DEFAULT 0,
                     generating BOOLEAN DEFAULT 0,
                     cost_usd REAL,
+                    sync_status TEXT DEFAULT 'synced',
                     raw_data TEXT NOT NULL
                 )
                 """
@@ -53,11 +55,16 @@ class Database:
                     token_count INTEGER,
                     cost_usd REAL,
                     starred BOOLEAN,
+                    sync_status TEXT DEFAULT 'synced',
+                    local_id TEXT,
+                    response_time_ms INTEGER,
                     raw_data TEXT NOT NULL,
                     FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
                 )
                 """
             )
+            # Run migrations for existing databases
+            self._migrate(conn)
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id
@@ -69,6 +76,43 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_conversations_updated_at
                 ON conversations(updated_at DESC)
                 """
+            )
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        """Run database migrations for existing databases.
+
+        Adds new columns if they don't exist. Safe to run multiple times.
+        """
+        # Get current column info for conversations table
+        cursor = conn.execute("PRAGMA table_info(conversations)")
+        conv_columns = {row["name"] for row in cursor.fetchall()}
+
+        # Add sync_status to conversations if missing
+        if "sync_status" not in conv_columns:
+            conn.execute(
+                "ALTER TABLE conversations ADD COLUMN sync_status TEXT DEFAULT 'synced'"
+            )
+
+        # Get current column info for messages table
+        cursor = conn.execute("PRAGMA table_info(messages)")
+        msg_columns = {row["name"] for row in cursor.fetchall()}
+
+        # Add sync_status to messages if missing
+        if "sync_status" not in msg_columns:
+            conn.execute(
+                "ALTER TABLE messages ADD COLUMN sync_status TEXT DEFAULT 'synced'"
+            )
+
+        # Add local_id to messages if missing
+        if "local_id" not in msg_columns:
+            conn.execute(
+                "ALTER TABLE messages ADD COLUMN local_id TEXT"
+            )
+
+        # Add response_time_ms to messages if missing
+        if "response_time_ms" not in msg_columns:
+            conn.execute(
+                "ALTER TABLE messages ADD COLUMN response_time_ms INTEGER"
             )
 
     @property
