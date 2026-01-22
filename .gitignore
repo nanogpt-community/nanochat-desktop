@@ -196,3 +196,4 @@ repo-release/
 # Editor temp files
 *.kate-swp
 .*.kate-swp
+.kilocode/mcp.json
