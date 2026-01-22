@@ -238,11 +238,45 @@ class NanoChatClient:
         except Exception:
             return False
 
+    async def toggle_star(self, message_id: str, starred: bool) -> bool:
+        """Toggle the starred status of a message.
+
+        Args:
+            message_id: The message ID to star/unstar
+            starred: True to star, False to unstar
+
+        Returns:
+            True if successful, False otherwise
+
+        Raises:
+            AuthenticationError: If authentication fails
+            NanoChatAPIError: If the API returns an error
+            APIConnectionError: If network connection fails
+        """
+        try:
+            await self._request(
+                "POST",
+                "/api/db/messages",
+                json={
+                    "action": "setStarred",
+                    "messageId": message_id,
+                    "starred": starred,
+                },
+            )
+            return True
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                raise AuthenticationError("Invalid API key") from e
+            raise NanoChatAPIError(f"Failed to toggle star: {e.response.status_code}") from e
+        except httpx.NetworkError as e:
+            raise APIConnectionError("Cannot connect to server") from e
+
     # Streaming message generation
     async def stream_generate_message(
         self,
         request: GenerateMessageRequest,
         on_event: Callable[[str, dict], None],
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> None:
         """Generate a message with SSE streaming using callbacks.
 
@@ -255,6 +289,7 @@ class NanoChatClient:
         Args:
             request: Generation request parameters
             on_event: Callback function receiving (event_type, event_data)
+            is_cancelled: Optional callback to check for cancellation (return True to cancel)
 
         Raises:
             NanoChatAPIError: If the API returns an error
@@ -280,6 +315,10 @@ class NanoChatClient:
 
                 try:
                     async for line in response.aiter_lines():
+                        # Check for cancellation before processing each line
+                        if is_cancelled and is_cancelled():
+                            break
+
                         # If we've already received a terminal event, just consume and ignore
                         if received_complete:
                             continue

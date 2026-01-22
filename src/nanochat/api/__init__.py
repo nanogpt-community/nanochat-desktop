@@ -13,6 +13,7 @@ from nanochat.api.exceptions import (
     ConnectionError,
     RateLimitError,
 )
+from nanochat.api.streaming import StreamingManager
 
 __all__ = [
     "NanoChatClient",
@@ -24,4 +25,5 @@ __all__ = [
     "AuthenticationError",
     "ConnectionError",
     "RateLimitError",
+    "StreamingManager",
 ]

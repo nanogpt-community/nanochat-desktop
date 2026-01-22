@@ -2,20 +2,23 @@
 
 import sqlite3
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 
 from nanochat.api.models import Conversation, Message
 from .xdg import get_data_dir
+from .sync_status import SyncStatus
 
 
 class Database:
-    """SQLite database for caching."""
+    """SQLite database for caching with thread-local connections."""
 
     def __init__(self) -> None:
         self.db_path = get_data_dir() / "cache.db"
-        self._conn: Optional[sqlite3.Connection] = None
+        # Thread-local storage for connections
+        self._local = threading.local()
         self._init_db()
 
     def _init_db(self) -> None:
@@ -36,6 +39,7 @@ class Database:
                     pinned BOOLEAN DEFAULT 0,
                     generating BOOLEAN DEFAULT 0,
                     cost_usd REAL,
+                    sync_status TEXT DEFAULT 'synced',
                     raw_data TEXT NOT NULL
                 )
                 """
@@ -53,11 +57,16 @@ class Database:
                     token_count INTEGER,
                     cost_usd REAL,
                     starred BOOLEAN,
+                    sync_status TEXT DEFAULT 'synced',
+                    local_id TEXT,
+                    response_time_ms INTEGER,
                     raw_data TEXT NOT NULL,
                     FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
                 )
                 """
             )
+            # Run migrations for existing databases
+            self._migrate(conn)
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id
@@ -71,19 +80,58 @@ class Database:
                 """
             )
 
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        """Run database migrations for existing databases.
+
+        Adds new columns if they don't exist. Safe to run multiple times.
+        """
+        # Get current column info for conversations table
+        cursor = conn.execute("PRAGMA table_info(conversations)")
+        conv_columns = {row["name"] for row in cursor.fetchall()}
+
+        # Add sync_status to conversations if missing
+        if "sync_status" not in conv_columns:
+            conn.execute(
+                "ALTER TABLE conversations ADD COLUMN sync_status TEXT DEFAULT 'synced'"
+            )
+
+        # Get current column info for messages table
+        cursor = conn.execute("PRAGMA table_info(messages)")
+        msg_columns = {row["name"] for row in cursor.fetchall()}
+
+        # Add sync_status to messages if missing
+        if "sync_status" not in msg_columns:
+            conn.execute(
+                "ALTER TABLE messages ADD COLUMN sync_status TEXT DEFAULT 'synced'"
+            )
+
+        # Add local_id to messages if missing
+        if "local_id" not in msg_columns:
+            conn.execute(
+                "ALTER TABLE messages ADD COLUMN local_id TEXT"
+            )
+
+        # Add response_time_ms to messages if missing
+        if "response_time_ms" not in msg_columns:
+            conn.execute(
+                "ALTER TABLE messages ADD COLUMN response_time_ms INTEGER"
+            )
+
     @property
     def connection(self) -> sqlite3.Connection:
-        if self._conn is None:
-            self._conn = sqlite3.connect(self.db_path)
-            self._conn.row_factory = sqlite3.Row
+        """Get or create a thread-local connection."""
+        if not hasattr(self._local, "conn") or self._local.conn is None:
+            self._local.conn = sqlite3.connect(self.db_path)
+            self._local.conn.row_factory = sqlite3.Row
             # Enable foreign keys
-            self._conn.execute("PRAGMA foreign_keys = ON")
-        return self._conn
+            self._local.conn.execute("PRAGMA foreign_keys = ON")
+        return self._local.conn
 
     def close(self) -> None:
-        if self._conn:
-            self._conn.close()
-            self._conn = None
+        """Close the current thread's connection."""
+        if hasattr(self._local, "conn") and self._local.conn:
+            self._local.conn.close()
+            self._local.conn = None
 
     # Conversations
 
@@ -181,8 +229,8 @@ class Database:
                 """
                 INSERT OR REPLACE INTO messages (
                     id, conversation_id, role, content, reasoning, model_id,
-                    created_at, token_count, cost_usd, starred, raw_data
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, token_count, cost_usd, starred, response_time_ms, raw_data
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message.id,
@@ -195,6 +243,7 @@ class Database:
                     message.token_count,
                     message.cost_usd,
                     message.starred,
+                    message.response_time_ms,
                     json.dumps(data),
                 ),
             )
@@ -208,8 +257,8 @@ class Database:
                     """
                     INSERT OR REPLACE INTO messages (
                         id, conversation_id, role, content, reasoning, model_id,
-                        created_at, token_count, cost_usd, starred, raw_data
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        created_at, token_count, cost_usd, starred, response_time_ms, raw_data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         msg.id,
@@ -222,6 +271,7 @@ class Database:
                         msg.token_count,
                         msg.cost_usd,
                         msg.starred,
+                        msg.response_time_ms,
                         json.dumps(data),
                     ),
                 )

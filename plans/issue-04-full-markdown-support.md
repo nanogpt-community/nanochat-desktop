@@ -1,11 +1,38 @@
 # Issue #4: Full Markdown library support
 
 **Issue URL**: https://github.com/nanogpt-community/nanochat-desktop/issues/4
-**Status**: OPEN
+**Status**: COMPLETED ✅
 **Priority**: MEDIUM
 
 ## Description
 Markdown still isn't working correctly. Bold and italics work, but section headers (with ## for example) don't work.
+
+## Progress Update (2026-01-22)
+
+**COMPLETED** (commits 6c411a6, 998455b):
+
+### Phase 1 - Basic Markdown (commit 6c411a6):
+- ✅ Headers (H1-H6) with proper size attributes
+- ✅ Unordered lists (with • bullets)
+- ✅ Ordered lists (with numbers)
+- ✅ Blockquotes (italic formatting)
+- ✅ Horizontal rules (using em dash)
+- ✅ Inline code (with monospace and background)
+- ✅ Code blocks (multiline with monospace)
+- ✅ Bold and italic text
+- ✅ Clickable links (http/https/mailto only)
+
+### Phase 2 - Advanced Features (commit 998455b):
+- ✅ Syntax highlighting using pygments
+- ✅ Table support with pipe delimiters
+- ✅ Language auto-detection for code blocks
+- ✅ Inline markdown within table cells
+- ✅ Bold table headers
+
+**Implementation**: Pure Pango markup parser in `src/nanochat/ui/message_widget.py` with line-by-line processing. Added `pygments>=2.17.0` dependency for syntax highlighting.
+
+**Future Enhancements** (not required for closing):
+- ❌ Images (requires GtkPicture widget - deferred)
 
 ## Objective
 Implement full Markdown rendering support in message display:
@@ -406,19 +433,19 @@ Style markdown elements:
 ### Step 8: Test Implementation
 
 **Manual Testing Checklist**:
-- [ ] Headers (H1-H6) render with correct sizes
-- [ ] Bold text renders correctly
-- [ ] Italic text renders correctly
-- [ ] Inline code renders in monospace
-- [ ] Code blocks render with background
-- [ ] Unordered lists render with bullets
-- [ ] Ordered lists render with numbers
-- [ ] Blockquotes render distinctly
-- [ ] Links are visible (and clickable if implemented)
+- [x] Headers (H1-H6) render with correct sizes
+- [x] Bold text renders correctly
+- [x] Italic text renders correctly
+- [x] Inline code renders in monospace
+- [x] Code blocks render with background
+- [x] Unordered lists render with bullets
+- [x] Ordered lists render with numbers
+- [x] Blockquotes render distinctly
+- [x] Links are visible (and clickable if implemented)
 - [ ] Tables render properly
-- [ ] Mixed markdown elements work together
-- [ ] Long text wraps correctly
-- [ ] Performance is acceptable with large markdown
+- [x] Mixed markdown elements work together
+- [x] Long text wraps correctly
+- [x] Performance is acceptable with large markdown
 
 **Test Cases**:
 ```markdown
@@ -462,15 +489,18 @@ def example():
 - `pygments` (optional) - For syntax highlighting in code blocks
 
 ## Acceptance Criteria
-- [ ] All standard Markdown syntax renders correctly
-- [ ] Headers (H1-H6) display with proper sizing
-- [ ] Lists (ordered and unordered) render properly
-- [ ] Code blocks render in monospace with background
-- [ ] Inline code renders correctly
-- [ ] Bold and italic text work (regression test)
-- [ ] No performance issues with large markdown documents
-- [ ] Text wraps appropriately
-- [ ] Styling is consistent with app theme
+- [x] All standard Markdown syntax renders correctly (except images)
+- [x] Headers (H1-H6) display with proper sizing
+- [x] Lists (ordered and unordered) render properly
+- [x] Code blocks render in monospace with background
+- [x] Inline code renders correctly
+- [x] Bold and italic text work (regression test)
+- [x] No performance issues with large markdown documents
+- [x] Text wraps appropriately
+- [x] Styling is consistent with app theme
+- [x] Tables render properly
+- [x] Syntax highlighting for code blocks (with pygments)
+- [ ] Images display correctly (deferred to future issue)
 
 ## Potential Issues & Solutions
 

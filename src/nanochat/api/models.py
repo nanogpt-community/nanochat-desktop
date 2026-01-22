@@ -38,6 +38,7 @@ class Message(BaseModel):
     token_count: Optional[int] = Field(default=None, alias="tokenCount")
     cost_usd: Optional[float] = Field(default=None, alias="costUsd")
     starred: Optional[bool] = None
+    response_time_ms: Optional[int] = Field(default=None, alias="responseTimeMs")
 
     model_config = {"populate_by_name": True}
 
