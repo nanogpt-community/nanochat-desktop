@@ -24,15 +24,17 @@ except ImportError:
 _CODE_BLOCK_RE = re.compile(r"```(\w*)\n(.*?)```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_BOLD_ITALIC_RE = re.compile(r"\*\*\*([^*]+)\*\*\*")  # Combined bold+italic
 _BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
-_ITALIC_RE = re.compile(r"\*([^*]+)\*")
+_ITALIC_RE = re.compile(r"(?<!\*)\*([^*]+)\*(?!\*)")  # Negative lookahead/behind to avoid matching ** parts
+_STRIKETHROUGH_RE = re.compile(r"~~([^~]+)~~")  # Strikethrough
 # New patterns for extended markdown
 _HEADER_RE = re.compile(r"^(#{1,6})\s+(.+)$")  # Headers
 _BLOCKQUOTE_RE = re.compile(r"^>\s*(.+)$")  # Blockquotes
 _HR_RE = re.compile(r"^(?:-{3,}|\*{3,})\s*$")  # Horizontal rules
 _LIST_RE = re.compile(r"^([*\-+]|\d+\.)\s+(.+)$")  # Lists (unordered and ordered)
 _TABLE_RE = re.compile(r"^\|(.+)\|$")  # Table rows
-_TABLE_SEPARATOR_RE = re.compile(r"^\|[\s\-:]+\|$")  # Table separator (e.g., |---|)
+_TABLE_SEPARATOR_RE = re.compile(r"^\|[\s\-:|]+\|$")  # Table separator (e.g., |---|, |:---:|)
 
 # Security: Only allow safe URL schemes for links
 _ALLOWED_URL_SCHEMES = ("http://", "https://", "mailto:")
@@ -107,16 +109,13 @@ class PangoFormatter(Formatter):
     def __init__(self, **options: object) -> None:
         super().__init__(**options)
 
-    def format(self, tokensource: tuple[tuple[object, str], ...]) -> str:
-        """Format tokens as Pango markup.
+    def format(self, tokensource: tuple[tuple[object, str], ...], outfile: object) -> None:
+        """Format tokens as Pango markup, writing to outfile.
 
         Args:
             tokensource: Iterator of (token_type, value) pairs from pygments
-
-        Returns:
-            Pango markup string with color spans
+            outfile: File-like object to write output to
         """
-        output = []
         for token_type, value in tokensource:
             # Get the token type string
             token_str = str(token_type)
@@ -128,11 +127,9 @@ class PangoFormatter(Formatter):
             escaped = GLib.markup_escape_text(value)
 
             if color and value.strip():  # Only add span if we have a color and non-whitespace
-                output.append(f'<span foreground="{color}">{escaped}</span>')
+                outfile.write(f'<span foreground="{color}">{escaped}</span>')
             else:
-                output.append(escaped)
-
-        return "".join(output)
+                outfile.write(escaped)
 
 
 class MessageWidget(Adw.Bin):  # type: ignore[misc]
@@ -487,7 +484,8 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
             return ""
 
         lines = text.split("\n")
-        result_lines: list[str] = []
+        # Use tuples of (line, is_preformatted) to track which lines should skip inline formatting
+        result_lines: list[tuple[str, bool]] = []
         in_code_block = False
         code_lines: list[str] = []
         code_lang = ""
@@ -502,7 +500,8 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
                     if code_lines:
                         code = "\n".join(code_lines)
                         formatted_code = self._highlight_code(code, code_lang)
-                        result_lines.append(formatted_code)
+                        # Mark as preformatted so it skips inline processing
+                        result_lines.append((formatted_code, True))
                     code_lines = []
                     code_lang = ""
                 else:
@@ -516,7 +515,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
                 # Collect code lines
                 code_lines.append(line)
             else:
-                result_lines.append(line)
+                result_lines.append((line, False))
 
         # Second pass: process each line for block-level and inline formatting
         formatted_lines: list[str] = []
@@ -524,31 +523,38 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         list_indent = 0
         in_table = False
         table_rows: list[list[str]] = []
+        table_header_count = 0  # Track how many rows are headers (before separator)
 
-        for line in result_lines:
+        for line, is_preformatted in result_lines:
+            # If line is preformatted (e.g., code block), add it directly
+            if is_preformatted:
+                formatted_lines.append(line)
+                in_list = False
+                in_table = False
+                continue
+
             # Check for table row
             table_match = _TABLE_RE.match(line)
             if table_match:
                 # Check if this is a separator row (|---|)
                 if _TABLE_SEPARATOR_RE.match(line):
-                    # Skip separator rows, but mark that we're in a table
-                    if table_rows:
-                        # We have collected header rows, render them
-                        formatted_lines.extend(self._format_table(table_rows))
-                        table_rows = []
+                    # Mark how many header rows we have (rows before separator)
+                    table_header_count = len(table_rows)
                     in_table = True
                     continue
 
                 # Parse the table row
                 cells = [cell.strip() for cell in table_match.group(1).split("|")]
                 table_rows.append(cells)
+                in_table = True
                 continue
 
-            # If we were in a table and now we're not, flush any remaining table
+            # If we were in a table and now we're not, flush the table
             if in_table and not table_match:
                 if table_rows:
-                    formatted_lines.extend(self._format_table(table_rows))
+                    formatted_lines.extend(self._format_table(table_rows, table_header_count))
                     table_rows = []
+                    table_header_count = 0
                 in_table = False
 
             # Skip empty lines (but add them for spacing between blocks)
@@ -611,7 +617,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
 
         # Flush any remaining table
         if table_rows:
-            formatted_lines.extend(self._format_table(table_rows))
+            formatted_lines.extend(self._format_table(table_rows, table_header_count))
 
         # Join lines with newlines
         return "\n".join(formatted_lines)
@@ -660,7 +666,7 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         def replace_inline_code(match: re.Match[str]) -> str:
             code = match.group(1)
             escaped = GLib.markup_escape_text(code)
-            return f'<span font_family="monospace" bgcolor="#f5f5f5">{escaped}</span>'
+            return f"<tt>{escaped}</tt>"
 
         parts = process_parts(_INLINE_CODE_RE, replace_inline_code)
 
@@ -680,6 +686,14 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
 
         parts = process_parts(_LINK_RE, replace_link)
 
+        # Bold+Italic ***text*** (must be processed before bold and italic)
+        def replace_bold_italic(match: re.Match[str]) -> str:
+            content = match.group(1)
+            escaped = GLib.markup_escape_text(content)
+            return f"<b><i>{escaped}</i></b>"
+
+        parts = process_parts(_BOLD_ITALIC_RE, replace_bold_italic)
+
         # Bold **text**
         def replace_bold(match: re.Match[str]) -> str:
             content = match.group(1)
@@ -696,6 +710,14 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
 
         parts = process_parts(_ITALIC_RE, replace_italic)
 
+        # Strikethrough ~~text~~
+        def replace_strikethrough(match: re.Match[str]) -> str:
+            content = match.group(1)
+            escaped = GLib.markup_escape_text(content)
+            return f"<s>{escaped}</s>"
+
+        parts = process_parts(_STRIKETHROUGH_RE, replace_strikethrough)
+
         # Combine parts
         result = []
         for part_text, is_markup in parts:
@@ -707,58 +729,43 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         return "".join(result)
 
     def _highlight_code(self, code: str, lang: str) -> str:
-        """Apply syntax highlighting to code using pygments.
+        """Format code block as monospace text with visual separator.
 
         Args:
-            code: The source code to highlight
-            lang: The language identifier (e.g., "python", "javascript")
+            code: The source code to format
+            lang: The language identifier (shown as label if provided)
 
         Returns:
-            Pango markup with syntax highlighting, or plain monospace text
-            if pygments is not available or language is not recognized.
+            Pango markup with monospace formatting and visual styling.
+            
+        Note:
+            Using Unicode box drawing and background color simulation via
+            indentation to make code blocks visually distinct.
         """
         if not code:
             return ""
 
-        # If pygments is not available, fall back to plain code
-        if not _PYGMENTS_AVAILABLE:
-            escaped = GLib.markup_escape_text(code)
-            return f'<span font_family="monospace" bgcolor="#f0f0f0">{escaped}</span>'
+        # Escape the code
+        escaped = GLib.markup_escape_text(code)
+        
+        # Add language label if provided
+        lang_label = f"<small><i>{GLib.markup_escape_text(lang)}</i></small>\n" if lang else ""
+        
+        # Wrap in monospace with a dim foreground to simulate code block appearance
+        # Also add left border simulation using block character
+        lines = escaped.split("\n")
+        formatted_lines = [f"<tt>  {line}</tt>" for line in lines]
+        code_content = "\n".join(formatted_lines)
+        
+        # Wrap with visual separator
+        return f"\n<span foreground=\"#666666\">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>\n{lang_label}{code_content}\n<span foreground=\"#666666\">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>\n"
 
-        try:
-            # Get the appropriate lexer for the language
-            if lang:
-                try:
-                    lexer = get_lexer_by_name(lang)
-                except Exception:
-                    # Language not recognized, try to guess
-                    try:
-                        lexer = guess_lexer(code)
-                    except Exception:
-                        lexer = TextLexer()
-            else:
-                # No language specified, try to guess or use text
-                try:
-                    lexer = guess_lexer(code)
-                except Exception:
-                    lexer = TextLexer()
-
-            # Highlight the code using our custom Pango formatter
-            formatter = PangoFormatter()
-            highlighted = highlight(code, lexer, formatter)
-
-            # Wrap in monospace span with background
-            return f'<span font_family="monospace" bgcolor="#f0f0f0">{highlighted}</span>'
-        except Exception:
-            # Fall back to plain code if highlighting fails
-            escaped = GLib.markup_escape_text(code)
-            return f'<span font_family="monospace" bgcolor="#f0f0f0">{escaped}</span>'
-
-    def _format_table(self, rows: list[list[str]]) -> list[str]:
+    def _format_table(self, rows: list[list[str]], header_count: int = 1) -> list[str]:
         """Format table rows as Pango markup.
 
         Args:
             rows: List of table rows, where each row is a list of cell contents
+            header_count: Number of rows that should be treated as headers (bold)
 
         Returns:
             List of formatted Pango markup strings representing the table
@@ -776,10 +783,6 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
         for row in rows:
             for i, cell in enumerate(row):
                 if i < max_cols:
-                    # Apply inline formatting to cell content
-                    formatted_cell = self._format_inline(cell)
-                    # Strip markup for width calculation (rough approximation)
-                    # We'll use a simpler approach: just count characters
                     col_widths[i] = max(col_widths[i], len(cell))
 
         # Format each row
@@ -791,15 +794,18 @@ class MessageWidget(Adw.Bin):  # type: ignore[misc]
                 if col_idx < len(row):
                     # Apply inline formatting to cell content
                     cell_content = self._format_inline(row[col_idx])
+                    # Pad cell to column width for alignment
+                    padding = col_widths[col_idx] - len(row[col_idx])
+                    cell_content = cell_content + " " * padding
                     row_cells.append(cell_content)
                 else:
-                    row_cells.append("")  # Empty cell
+                    row_cells.append(" " * col_widths[col_idx])  # Empty cell with padding
 
             # Join cells with " | " separator
             formatted_row = " | ".join(row_cells)
 
-            # Make header row bold
-            if row_idx == 0:
+            # Make header rows bold (rows before the separator)
+            if row_idx < header_count:
                 formatted_row = f"<b>{formatted_row}</b>"
 
             formatted_rows.append(formatted_row)
