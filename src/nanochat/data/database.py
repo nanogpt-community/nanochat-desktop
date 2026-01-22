@@ -229,8 +229,8 @@ class Database:
                 """
                 INSERT OR REPLACE INTO messages (
                     id, conversation_id, role, content, reasoning, model_id,
-                    created_at, token_count, cost_usd, starred, raw_data
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, token_count, cost_usd, starred, response_time_ms, raw_data
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message.id,
@@ -243,6 +243,7 @@ class Database:
                     message.token_count,
                     message.cost_usd,
                     message.starred,
+                    message.response_time_ms,
                     json.dumps(data),
                 ),
             )
@@ -256,8 +257,8 @@ class Database:
                     """
                     INSERT OR REPLACE INTO messages (
                         id, conversation_id, role, content, reasoning, model_id,
-                        created_at, token_count, cost_usd, starred, raw_data
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        created_at, token_count, cost_usd, starred, response_time_ms, raw_data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         msg.id,
@@ -270,6 +271,7 @@ class Database:
                         msg.token_count,
                         msg.cost_usd,
                         msg.starred,
+                        msg.response_time_ms,
                         json.dumps(data),
                     ),
                 )

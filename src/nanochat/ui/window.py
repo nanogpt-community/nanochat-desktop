@@ -1206,6 +1206,58 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self._syncing_conversations.discard(conversation_id)
         self.toast_overlay.add_toast(Adw.Toast(title="Failed to load messages"))
 
+    def _on_regenerate_message(self) -> None:
+        """Handle regenerate button click - regenerate the last assistant response."""
+        # Get the current conversation's messages
+        if not self._current_conversation_id:
+            self.toast_overlay.add_toast(Adw.Toast(title="No conversation selected"))
+            return
+
+        messages = self._current_messages
+        if not messages or len(messages) < 2:
+            self.toast_overlay.add_toast(Adw.Toast(title="Cannot regenerate"))
+            return
+
+        # Remove the last assistant message
+        last_message = messages[-1]
+        if last_message.role != "assistant":
+            self.toast_overlay.add_toast(Adw.Toast(title="Last message is not from assistant"))
+            return
+
+        # Delete the last assistant message from UI
+        if self.messages_list.get_first_child():
+            last_widget = self.messages_list.get_last_child()
+            if last_widget:
+                self.messages_list.remove(last_widget)
+
+        # Remove from current messages list
+        self._current_messages = messages[:-1]
+
+        # Re-send the last user message to regenerate
+        user_message = None
+        for msg in reversed(messages[:-1]):
+            if msg.role == "user":
+                user_message = msg
+                break
+
+        if user_message:
+            # Set the message entry text and trigger send
+            self.message_entry.set_text(user_message.content)
+            self._on_send(self.message_entry)
+        else:
+            self.toast_overlay.add_toast(Adw.Toast(title="Could not find user message to regenerate"))
+
+    def _on_star_message(self, starred: bool) -> None:
+        """Handle star button click - toggle message starred status.
+
+        Args:
+            starred: New starred state
+        """
+        # For now, just show a toast notification
+        # TODO: Implement actual API call to toggle star status
+        status = "starred" if starred else "unstarred"
+        self.toast_overlay.add_toast(Adw.Toast(title=f"Message {status}"))
+
     def _show_loading_indicator(self, message: str) -> None:
         """Show loading indicator in the title bar."""
         # Use the model selector to show loading state
@@ -1253,7 +1305,11 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                 model_id=msg.model_id,
                 token_count=msg.token_count,
                 cost_usd=msg.cost_usd,
+                response_time_ms=msg.response_time_ms,
+                starred=msg.starred or False,
                 reasoning=msg.reasoning,
+                on_regenerate=self._on_regenerate_message if msg.role == "assistant" else None,
+                on_star=self._on_star_message if msg.role == "assistant" else None,
             )
             self.messages_list.append(widget)
 
@@ -1611,6 +1667,14 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
                     elif event_type == "message_complete":
                         # Generation complete - refresh title only if it's a new chat
                         conv_id = state.get("conversation_id")
+                        # Capture metadata for display
+                        response_time_ms = event_data.get("response_time_ms")
+                        token_count = event_data.get("token_count")
+                        cost_usd = event_data.get("cost_usd")
+
+                        # Update the assistant message widget with metadata
+                        GLib.idle_add(self._update_assistant_message_metadata, token_count, cost_usd, response_time_ms)
+
                         if conv_id:
                             def schedule_title_refresh() -> bool:
                                 """Schedule title refresh on main thread."""
@@ -1697,9 +1761,29 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             # Update existing
             child.update_content(content)
         else:
-            # Create new
-            widget = MessageWidget(role="assistant", content=content)
+            # Create new with callbacks
+            widget = MessageWidget(
+                role="assistant",
+                content=content,
+                on_regenerate=self._on_regenerate_message,
+                on_star=self._on_star_message,
+            )
             self.messages_list.append(widget)
+
+    def _update_assistant_message_metadata(
+        self,
+        token_count: int | None = None,
+        cost_usd: float | None = None,
+        response_time_ms: int | None = None,
+    ) -> None:
+        """Update the last assistant message widget's metadata."""
+        child = self.messages_list.get_last_child()
+        if child and isinstance(child, MessageWidget) and child.role == "assistant":
+            child.update_metadata(
+                token_count=token_count,
+                cost_usd=cost_usd,
+                response_time_ms=response_time_ms,
+            )
 
     def _show_error(self, error: str) -> None:
         """Show error message to user and log it."""
