@@ -2,6 +2,7 @@
 
 import sqlite3
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
@@ -12,11 +13,12 @@ from .sync_status import SyncStatus
 
 
 class Database:
-    """SQLite database for caching."""
+    """SQLite database for caching with thread-local connections."""
 
     def __init__(self) -> None:
         self.db_path = get_data_dir() / "cache.db"
-        self._conn: Optional[sqlite3.Connection] = None
+        # Thread-local storage for connections
+        self._local = threading.local()
         self._init_db()
 
     def _init_db(self) -> None:
@@ -117,17 +119,19 @@ class Database:
 
     @property
     def connection(self) -> sqlite3.Connection:
-        if self._conn is None:
-            self._conn = sqlite3.connect(self.db_path)
-            self._conn.row_factory = sqlite3.Row
+        """Get or create a thread-local connection."""
+        if not hasattr(self._local, "conn") or self._local.conn is None:
+            self._local.conn = sqlite3.connect(self.db_path)
+            self._local.conn.row_factory = sqlite3.Row
             # Enable foreign keys
-            self._conn.execute("PRAGMA foreign_keys = ON")
-        return self._conn
+            self._local.conn.execute("PRAGMA foreign_keys = ON")
+        return self._local.conn
 
     def close(self) -> None:
-        if self._conn:
-            self._conn.close()
-            self._conn = None
+        """Close the current thread's connection."""
+        if hasattr(self._local, "conn") and self._local.conn:
+            self._local.conn.close()
+            self._local.conn = None
 
     # Conversations
 

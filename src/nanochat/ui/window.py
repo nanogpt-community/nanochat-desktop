@@ -16,6 +16,7 @@ from nanochat.api.models import Assistant, Conversation, Message, Model
 from nanochat.data.database import Database
 from nanochat.data.secrets import SecretsManager
 from nanochat.data.settings import SettingsManager
+from nanochat.data.repositories import ConversationRepository, MessageRepository
 from nanochat.ui.message_widget import MessageWidget
 from nanochat.ui.models_dialog import ModelsDialog
 from nanochat.ui.attachments import (
@@ -39,6 +40,8 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         settings_manager: SettingsManager,
         secrets_manager: SecretsManager,
         database: Database,
+        conversation_repository: ConversationRepository | None = None,
+        message_repository: MessageRepository | None = None,
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)
@@ -46,15 +49,16 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         self.settings_manager = settings_manager
         self.secrets_manager = secrets_manager
         self.database = database
+
+        # Create repositories (will create API client lazily when needed)
+        self.conversation_repo = conversation_repository
+        self.message_repo = message_repository
         self._models: list[Model] = []
         self._model_ids: list[str] = []
         self._conversations: list[Conversation] = []
         self._current_conversation_id: str | None = None
         self._current_messages: list[Message] = []
         self._is_sending: bool = False
-        # Track when we last fetched each conversation from API (for cache freshness)
-        self._conversation_fetch_time: dict[str, float] = {}
-        self._cache_stale_seconds: int = 300  # 5 minutes
         # Track loading state for UI feedback
         self._is_loading_conversations: bool = False
         # Track in-progress API syncs to prevent duplicate requests
@@ -87,6 +91,26 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
         # Connect to map signal for loading after UI is ready
         self.connect("map", self._on_map)
+
+    def _ensure_repositories(self) -> bool:
+        """Ensure repositories are initialized.
+
+        Creates repositories on-demand when URL and API key are available.
+        Returns True if repositories are ready, False otherwise.
+        """
+        if self.conversation_repo is None or self.message_repo is None:
+            url = self.settings_manager.settings.server.backend_url
+            key = self.secrets_manager.get_api_key()
+
+            if not url or not key:
+                return False
+
+            if self.conversation_repo is None:
+                self.conversation_repo = ConversationRepository(self.database, url, key)
+            if self.message_repo is None:
+                self.message_repo = MessageRepository(self.database, url, key)
+
+        return True
 
     def _setup_ui(self) -> None:
         """Build the UI."""
@@ -758,81 +782,93 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
         return model_id
 
     def _load_conversations(self, force_refresh: bool = False) -> None:
-        """Load conversations from DB and then sync with API.
+        """Load conversations using repository pattern.
 
         Args:
             force_refresh: If True, skip cache and fetch directly from API
         """
-        # 1. Load from local DB first (should be instant), unless force refresh
-        if not force_refresh:
-            try:
-                local_conversations = self.database.get_conversations()
-                logger.info(f"Loaded {len(local_conversations)} conversations from cache")
-                if local_conversations:
-                    self._update_conversation_list(local_conversations)
-            except Exception as e:
-                logger.error(f"Error loading local conversations: {e}")
-
-        # 2. Sync with API (in background)
-        url = self.settings_manager.settings.server.backend_url
-        key = self.secrets_manager.get_api_key()
-
-        if not url or not key:
+        # Ensure repositories are initialized
+        if not self._ensure_repositories():
             return
 
-        # Show refresh button as loading
+        # 1. Load from local cache first (instant)
+        if not force_refresh:
+            local_conversations = self.conversation_repo.get_conversations()
+            logger.info(f"Loaded {len(local_conversations)} conversations from cache")
+            if local_conversations:
+                self._update_conversation_list(local_conversations)
+
+        # 2. Skip sync if not forcing and data is fresh
+        if not force_refresh and not self.conversation_repo.is_sync_needed():
+            return
+
+        # 3. Sync with API (in background)
         self.refresh_btn.set_sensitive(False)
         self._is_loading_conversations = True
 
-        def fetch() -> list[Conversation] | Exception:
-            from nanochat.api.client import NanoChatClient
+        def fetch() -> None:
+            import asyncio
 
-            async def get_convs() -> list[Conversation]:
-                async with NanoChatClient(url, key) as client:
-                    return await client.get_conversations()
+            async def do_sync() -> object:
+                return await self.conversation_repo.fetch_and_sync_conversations()
 
             try:
                 loop = asyncio.new_event_loop()
-                convs = loop.run_until_complete(get_convs())
+                asyncio.set_event_loop(loop)
+                result = loop.run_until_complete(do_sync())
                 loop.close()
-                return convs
+
+                # Schedule ALL UI updates on the main thread
+                GLib.idle_add(self._on_sync_complete, result, force_refresh)
+
             except Exception as e:
-                return e
+                logger.error(f"Error in sync thread: {e}")
+                GLib.idle_add(self._on_sync_error, str(e))
 
-        def on_complete(conversations: list[Conversation] | Exception) -> None:
-            # Re-enable refresh button
-            self.refresh_btn.set_sensitive(True)
-            self._is_loading_conversations = False
+        thread = threading.Thread(target=fetch, daemon=True)
+        thread.start()
 
-            if isinstance(conversations, Exception):
-                logger.error(f"Failed to load conversations from API: {conversations}")
-                # Show toast for error
-                self.toast_overlay.add_toast(Adw.Toast(title="Failed to refresh conversations"))
-                return
+    def _on_sync_complete(self, result: object, force_refresh: bool) -> None:
+        """Handle sync completion on the main thread.
 
-            logger.info(f"Loaded {len(conversations)} conversations from API")
+        Args:
+            result: SyncResult from the repository
+            force_refresh: Whether this was a manual refresh
+        """
+        from nanochat.data.repositories.conversation_repository import SyncResult
 
-            # Save to DB
-            try:
-                self.database.save_conversations(conversations)
-                logger.debug(f"Saved {len(conversations)} conversations to cache")
-            except Exception as e:
-                logger.error(f"Error saving conversations to DB: {e}")
+        # Re-enable refresh button
+        self.refresh_btn.set_sensitive(True)
+        self._is_loading_conversations = False
 
-            self._update_conversation_list(conversations)
+        if not isinstance(result, SyncResult):
+            logger.error(f"Unexpected result type: {type(result)}")
+            return
+
+        if result.success:
+            logger.info(f"Synced {len(result.data)} conversations from API")
+            self._update_conversation_list(result.data)
 
             # Show success toast if this was a manual refresh
             if force_refresh:
                 self.toast_overlay.add_toast(
-                    Adw.Toast(title=f"Refreshed {len(conversations)} conversations")
+                    Adw.Toast(title=f"Refreshed {len(result.data)} conversations")
                 )
+        else:
+            logger.error(f"Failed to sync conversations: {result.error}")
+            self.toast_overlay.add_toast(
+                Adw.Toast(title="Failed to refresh conversations")
+            )
 
-        def thread_func() -> None:
-            result = fetch()
-            GLib.idle_add(on_complete, result)
+    def _on_sync_error(self, error: str) -> None:
+        """Handle sync error on the main thread.
 
-        thread = threading.Thread(target=thread_func, daemon=True)
-        thread.start()
+        Args:
+            error: Error message
+        """
+        self.refresh_btn.set_sensitive(True)
+        self._is_loading_conversations = False
+        self.toast_overlay.add_toast(Adw.Toast(title=f"Sync error: {error}"))
 
     def _update_conversation_list(
         self,
@@ -1042,8 +1078,10 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             self._load_messages(conversation_id)
 
     def _load_messages(self, conversation_id: str) -> None:
-        """Load messages for a conversation from DB and optionally sync with API."""
-        import time
+        """Load messages for a conversation using repository pattern."""
+        # Ensure repositories are initialized
+        if not self._ensure_repositories():
+            return
 
         self._current_conversation_id = conversation_id
 
@@ -1052,111 +1090,76 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
             logger.debug(f"API sync already in progress for {conversation_id[:8]}...")
             return
 
-        # Check cache freshness BEFORE loading (to know if we should sync)
-        current_time = time.time()
-        last_fetch = self._conversation_fetch_time.get(conversation_id, 0)
-        cache_is_stale = (current_time - last_fetch) > self._cache_stale_seconds
+        # 1. Load from cache first (instant)
+        cached_messages = self.message_repo.get_messages_cached(conversation_id)
+        if cached_messages:
+            logger.debug(f"Loaded {len(cached_messages)} messages from cache for {conversation_id[:8]}...")
+            self._update_messages_list(cached_messages, from_cache=True)
 
-        # 1. Load from DB first (should be instant)
-        local_messages = []
-        try:
-            local_messages = self.database.get_messages(conversation_id)
-            logger.debug(f"Loaded {len(local_messages)} messages from cache for {conversation_id[:8]}...")
-        except Exception as e:
-            logger.error(f"Error loading local messages: {e}")
-
-        # 2. Update UI with cached messages (if any) - defer API sync to allow UI to render
-        has_messages = len(local_messages) > 0
-        if has_messages:
-            self._update_messages_list(local_messages, from_cache=True)
-
-        # 3. Skip API sync if cache is fresh (has data and not stale)
-        if has_messages and not cache_is_stale:
+        # 2. Skip API sync if cache is fresh
+        if cached_messages and self.message_repo.is_cache_fresh(conversation_id):
             logger.debug(f"Cache is fresh for {conversation_id[:8]}, skipping API sync")
-            # Update fetch time so we know we've seen this conversation
-            if conversation_id not in self._conversation_fetch_time:
-                self._conversation_fetch_time[conversation_id] = current_time
             return
 
-        # 4. Defer the API sync to run after the UI has rendered
-        def start_api_sync() -> bool:
-            self._sync_messages_from_api(conversation_id, cache_is_stale)
-            return False  # Don't repeat
-
-        GLib.idle_add(start_api_sync)
-
-    def _sync_messages_from_api(self, conversation_id: str, cache_is_stale: bool) -> None:
-        """Sync messages from API in background thread."""
-        import time
-
-        # Skip if already syncing this conversation
-        if conversation_id in self._syncing_conversations:
-            logger.debug(
-                f"Skipping duplicate sync for {conversation_id[:8]}... (already in progress)"
-            )
-            return
-
+        # 3. Sync with API in background
         self._syncing_conversations.add(conversation_id)
         logger.debug(f"Syncing {conversation_id[:8]}... with API")
 
-        # Show loading indicator
-        self._show_loading_indicator("Retrieving messages...")
+        def fetch() -> None:
+            import asyncio
 
-        url = self.settings_manager.settings.server.backend_url
-        key = self.secrets_manager.get_api_key()
-
-        if not url or not key:
-            self._hide_loading_indicator()
-            return
-
-        current_time = time.time()
-
-        def fetch() -> list[Message] | Exception:
-            from nanochat.api.client import NanoChatClient
-
-            async def get_msgs() -> list[Message]:
-                async with NanoChatClient(url, key) as client:
-                    return await client.get_messages(conversation_id)
+            async def do_sync() -> tuple:
+                return await self.message_repo.get_messages_with_sync(conversation_id)
 
             try:
                 loop = asyncio.new_event_loop()
-                msgs = loop.run_until_complete(get_msgs())
+                asyncio.set_event_loop(loop)
+                result = loop.run_until_complete(do_sync())
                 loop.close()
-                return msgs
+
+                # Schedule UI updates on the main thread
+                GLib.idle_add(self._on_messages_sync_complete, conversation_id, result)
+
             except Exception as e:
-                return e
+                self._syncing_conversations.discard(conversation_id)
+                logger.error(f"Failed to load messages: {e}")
+                GLib.idle_add(self._on_messages_sync_error, conversation_id, str(e))
 
-        def on_complete(messages: list[Message] | Exception) -> None:
-            self._hide_loading_indicator()
-            # Remove from in-progress set
-            self._syncing_conversations.discard(conversation_id)
+        thread = threading.Thread(target=fetch, daemon=True)
+        thread.start()
 
-            if isinstance(messages, Exception):
-                logger.error(f"Failed to load messages from API: {messages}")
-                self.toast_overlay.add_toast(Adw.Toast(title="Failed to load messages"))
-                return
+    def _on_messages_sync_complete(
+        self, conversation_id: str, result: tuple[list[Message], bool]
+    ) -> None:
+        """Handle message sync completion on the main thread.
 
-            # Update fetch time FIRST before any UI updates
-            self._conversation_fetch_time[conversation_id] = time.time()
+        Args:
+            conversation_id: The conversation that was synced
+            result: Tuple of (messages, from_cache)
+        """
+        messages, from_cache = result
 
+        # Remove from in-progress set
+        self._syncing_conversations.discard(conversation_id)
+
+        if from_cache:
+            logger.debug(f"Using cached messages for {conversation_id[:8]}...")
+        else:
             logger.debug(f"Loaded {len(messages)} messages from API for {conversation_id[:8]}...")
 
-            # Save to DB
-            try:
-                self.database.save_messages(messages)
-            except Exception as e:
-                logger.error(f"Error saving messages to DB: {e}")
+        # Only update if we're still looking at the same conversation
+        if self._current_conversation_id == conversation_id:
+            self._update_messages_list(messages, from_cache=from_cache)
 
-            # Only update if we're still looking at the same conversation
-            if self._current_conversation_id == conversation_id:
-                self._update_messages_list(messages, from_cache=False)
+    def _on_messages_sync_error(self, conversation_id: str, error: str) -> None:
+        """Handle message sync error on the main thread.
 
-        def thread_func() -> None:
-            result = fetch()
-            GLib.idle_add(on_complete, result)
-
-        thread = threading.Thread(target=thread_func, daemon=True)
-        thread.start()
+        Args:
+            conversation_id: The conversation that failed to sync
+            error: Error message
+        """
+        self._syncing_conversations.discard(conversation_id)
+        self.toast_overlay.add_toast(Adw.Toast(title="Failed to load messages"))
 
     def _show_loading_indicator(self, message: str) -> None:
         """Show loading indicator in the title bar."""
@@ -1217,9 +1220,6 @@ class NanoChatWindow(Adw.ApplicationWindow):  # type: ignore[misc]
 
     def _on_refresh_conversations(self, button: Gtk.Button) -> None:
         """Handle refresh button click - force refresh conversations from API."""
-        # Clear cache timestamps to force refresh
-        self._conversation_fetch_time.clear()
-        # Reload conversations
         self._load_conversations(force_refresh=True)
 
     def _load_web_search_settings(self) -> None:
