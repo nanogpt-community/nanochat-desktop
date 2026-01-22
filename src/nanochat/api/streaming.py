@@ -5,6 +5,7 @@ Provides cancellable streams with timeout handling and UI update throttling.
 """
 
 import asyncio
+import threading
 import time
 from collections.abc import Callable
 from typing import Any, Optional
@@ -59,6 +60,7 @@ class StreamingManager:
         self._api_key = api_key
         self._current_task: Optional[asyncio.Task[None]] = None
         self._cancelled = False
+        self._cancel_event = threading.Event()  # Thread-safe cancellation signal
         self._last_ui_update = 0
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -68,6 +70,7 @@ class StreamingManager:
         Thread-safe: can be called from any thread.
         """
         self._cancelled = True
+        self._cancel_event.set()  # Signal all waiting threads
 
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
@@ -110,9 +113,14 @@ class StreamingManager:
             error: {error}
         """
         self._cancelled = False
+        self._cancel_event.clear()  # Reset cancellation event for new stream
         self._loop = asyncio.get_running_loop()
         accumulated_content = ""
         accumulated_reasoning = ""
+
+        # Thread-safe cancellation checker
+        def is_cancelled() -> bool:
+            return self._cancel_event.is_set()
 
         def handle_event(event_type: str, data: dict[str, Any]) -> None:
             """Handle SSE events from the API."""
